@@ -116,6 +116,61 @@ public static class Json
     /// <summary>The UTF-8 size of a node written compactly.</summary>
     public static int Bytes(JsonNode? n) => n == null ? 4 : Encoding.UTF8.GetByteCount(n.ToJsonString(Compact));
 
+    /// <summary>
+    /// The size the site measures a jsonb by (<c>octet_length(x::text)</c>): Postgres writes it with a
+    /// space after every <c>:</c> and <c>,</c>, letters as they are (UTF-8), and escapes only quotes,
+    /// backslashes and control characters. Numbers are measured as they're written here.
+    /// </summary>
+    public static int JsonbBytes(JsonNode? n)
+    {
+        switch (n)
+        {
+            case null:
+                return 4;
+            case JsonObject o:
+            {
+                var size = 2;
+                var first = true;
+                foreach (var (key, value) in o)
+                {
+                    size += (first ? 0 : 2) + TextBytes(key) + 2 + JsonbBytes(value);
+                    first = false;
+                }
+                return size;
+            }
+            case JsonArray a:
+            {
+                var size = 2;
+                for (var i = 0; i < a.Count; i++) size += (i == 0 ? 0 : 2) + JsonbBytes(a[i]);
+                return size;
+            }
+            case JsonValue v when v.TryGetValue<string>(out var s):
+                return TextBytes(s);
+            default:
+                return Encoding.UTF8.GetByteCount(n.ToJsonString(Compact));
+        }
+    }
+
+    /// <summary>A string as jsonb writes it, its quotes included.</summary>
+    private static int TextBytes(string s)
+    {
+        var size = 2;
+        foreach (var ch in s)
+        {
+            size += ch switch
+            {
+                '"' or '\\' or '\b' or '\f' or '\n' or '\r' or '\t' => 2,
+                < ' ' => 6,
+                < (char)0x80 => 1,
+                < (char)0x800 => 2,
+                // Half a surrogate pair: the pair is four bytes.
+                _ when char.IsSurrogate(ch) => 2,
+                _ => 3,
+            };
+        }
+        return size;
+    }
+
     /// <summary>Parses JSON text; null when it isn't JSON.</summary>
     public static JsonNode? Parse(string? text)
     {

@@ -168,6 +168,18 @@ public class SyncPolicyTests
         Assert.Equal(100, SyncPolicy.Half(200));
         Assert.Equal(1, SyncPolicy.Half(1));
     }
+
+    [Fact]
+    public void WithTheReadingAlongItsTriedWithoutItFirst()
+    {
+        // The reading may be what's too big (or what the site won't take): the events aren't split for it.
+        Assert.Equal(SyncStep.WithoutProgress, SyncPolicy.Decide(Refused("size"), 200, withProgress: true));
+        Assert.Equal(SyncStep.WithoutProgress, SyncPolicy.Decide(Refused("size"), 1, withProgress: true));
+        Assert.Equal(SyncStep.WithoutProgress, SyncPolicy.Decide(Refused("data"), 0, withProgress: true));
+        Assert.Equal(SyncStep.Split, SyncPolicy.Decide(Refused("size"), 200, withProgress: false));
+        Assert.Equal(SyncStep.Rate, SyncPolicy.Decide(Refused("rate"), 200, withProgress: true));
+        Assert.Equal(1, SyncPolicy.Half(1));
+    }
 }
 
 public class PhotoUploadTests
@@ -195,6 +207,17 @@ public class PhotoUploadTests
         Assert.StartsWith("Said for you.", r.Why);
     }
 
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public void TurnedAwayWithoutTheTokenHintIsNotAnUnlink(int status)
+    {
+        // A gateway's 401 (no hint, or not JSON) isn't the site saying the token's no good.
+        Assert.Equal(PhotoOutcome.Later, PhotoUpload.Read((HttpStatusCode)status, "{\"message\":\"Invalid JWT\"}").Outcome);
+        Assert.Equal(PhotoOutcome.Later, PhotoUpload.Read((HttpStatusCode)status, "<html>401</html>").Outcome);
+        Assert.False(SiteRpc.Read((HttpStatusCode)status, "{\"message\":\"Invalid JWT\"}").TokenRefused);
+    }
+
     [Fact]
     public async Task TheFormHasEveryFieldTheFunctionReads()
     {
@@ -218,3 +241,117 @@ public class PhotoUploadTests
         Assert.Null(PhotoUpload.Fit(40, 40, 2560));
     }
 }
+
+public class PaceTests
+{
+    private static readonly DateTime T = new(2026, 11, 8, 20, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void ACallThatCantStartIsntWaitedForForEver()
+    {
+        var pace = new Pace(TimeSpan.FromSeconds(10));
+        pace.Changed();
+        Exception? heard = null;
+        // Starting it throws (the queue's disk, say): it counts as failed, not as on its way.
+        Assert.True(pace.Run(T, () => throw new IOException("disk"), ex => heard = ex));
+        Assert.IsType<IOException>(heard);
+        Assert.False(pace.Busy);
+        // Tried again after the backoff.
+        Assert.False(pace.Due(T.AddSeconds(2)));
+        Assert.True(pace.Due(T.AddSeconds(15)));
+    }
+
+    [Fact]
+    public void AnHourlyLimitKeepsUnderTheSites()
+    {
+        var pace = new Pace(TimeSpan.FromSeconds(4), perHour: 3);
+        var at = T;
+        for (var i = 0; i < 3; i++)
+        {
+            pace.Changed();
+            Assert.True(pace.Due(at));
+            pace.Done(true, at);
+            at = at.AddSeconds(5);
+        }
+        pace.Changed();
+        Assert.False(pace.Due(at));
+        Assert.False(pace.Due(T.AddMinutes(59)));
+        // An hour after the first, one more may go; what was waiting goes then.
+        Assert.True(pace.Due(T.AddHours(1)));
+    }
+
+    [Fact]
+    public void NothingSentIsntCounted()
+    {
+        var pace = new Pace(TimeSpan.FromSeconds(4), perHour: 1);
+        pace.Changed();
+        Assert.True(pace.Due(T));
+        pace.Nothing();
+        pace.Changed();
+        Assert.True(pace.Due(T.AddSeconds(5)));
+    }
+}
+
+public class OutboxTests
+{
+    [Fact]
+    public void ANoteWaitsForItsSessionToReachTheSite()
+    {
+        var notes = new[] { new NoteState(SessionStanding.Waiting), new NoteState(SessionStanding.Known) };
+        var c = Outbox.NextNote(notes, out var waiting);
+        // The one whose session the site has goes, linked to it; the other waits, and the queue goes first.
+        Assert.Equal(new NoteChoice(1, true), c);
+        Assert.True(waiting);
+        Assert.Null(Outbox.NextNote(new[] { new NoteState(SessionStanding.Waiting) }, out waiting));
+        Assert.True(waiting);
+    }
+
+    [Fact]
+    public void ANoteWhoseSessionWontReachTheSiteGoesWithoutIt()
+    {
+        Assert.Equal(new NoteChoice(0, false), Outbox.NextNote(new[] { new NoteState(SessionStanding.Refused) }, out var waiting));
+        Assert.False(waiting);
+        Assert.Equal(new NoteChoice(0, false), Outbox.NextNote(new[] { new NoteState(SessionStanding.Missing) }, out _));
+    }
+
+    [Fact]
+    public void ANoteRestingAfterGoneDoesntHoldUpTheRest()
+    {
+        var notes = new[] { new NoteState(SessionStanding.Known, Resting: true), new NoteState(SessionStanding.Missing) };
+        Assert.Equal(new NoteChoice(1, false), Outbox.NextNote(notes, out _));
+    }
+
+    [Fact]
+    public void TheoriesGoBeforeAnswers()
+    {
+        var theories = new[] { new TheoryState(Sent: true), new TheoryState(Sent: false) };
+        var answers = new[] { AnswerFor.Site };
+        Assert.Equal(new TheoryChoice(false, 1), Outbox.NextTheoryCall(theories, answers));
+        // Once it's sent, the answers go.
+        theories[1] = new TheoryState(Sent: true);
+        Assert.Equal(new TheoryChoice(true, 0), Outbox.NextTheoryCall(theories, answers));
+    }
+
+    [Fact]
+    public void AnAnswerWaitsForItsTheory()
+    {
+        // Answered before it went (offline, say): the site wouldn't know it ("gone"), so it waits.
+        var theories = new[] { new TheoryState(Sent: false, Ready: false) };
+        Assert.Null(Outbox.NextTheoryCall(theories, new[] { AnswerFor.Unsent }));
+        Assert.Equal(new TheoryChoice(true, 1), Outbox.NextTheoryCall(theories, new[] { AnswerFor.Unsent, AnswerFor.Sent }));
+        // Resting after "gone", or its ask-at point not worked out yet: it waits too.
+        Assert.Null(Outbox.NextTheoryCall(new[] { new TheoryState(false, Resting: true) }, Array.Empty<AnswerFor>()));
+    }
+
+    [Fact]
+    public void GoneIsWaitedOutThenSetAside()
+    {
+        Assert.Equal(GoneStep.Wait, Outbox.Gone(1, characterHeardOf: false));
+        Assert.Equal(GoneStep.SetAside, Outbox.Gone(Outbox.GoneTries, characterHeardOf: false));
+        // The site had the character this time and still says gone: it dropped it.
+        Assert.Equal(GoneStep.SetAside, Outbox.Gone(1, characterHeardOf: true));
+        Assert.Equal(GoneStep.Wait, Outbox.PhotoGone(Outbox.GoneTries - 1));
+        Assert.Equal(GoneStep.SetAside, Outbox.PhotoGone(Outbox.GoneTries));
+    }
+}
+

@@ -40,7 +40,35 @@ public class JournalTextTests
         Assert.Equal(new[] { "Minfilia asks you to go north." }, JournalText.Journal(Rows, 1));
         Assert.Equal(new[] { "Minfilia asks you to go north." }, JournalText.Journal(Rows, 0));
         Assert.Equal(2, JournalText.Journal(Rows, 2).Count);
-        Assert.Equal(3, JournalText.Journal(Rows, JournalText.Final).Count);
+        Assert.Equal(3, JournalText.Whole(Rows).Count);
+    }
+
+    /// <summary>A quest as the game has it: three to-dos (steps 1, 2 and 255) and four entries, the last written for handing it in.</summary>
+    private static readonly (string, string)[] HandIn =
+    {
+        ("TEXT_MANFST009_00700_SEQ_00", "Alphinaud asks you to meet him in the Highlands."),
+        ("TEXT_MANFST009_00700_SEQ_01", "You found Alphinaud at Camp Dragonhead."),
+        ("TEXT_MANFST009_00700_SEQ_02", "Alphinaud is waiting for your report."),
+        ("TEXT_MANFST009_00700_SEQ_03", "You told Alphinaud everything, and he resolved to leave Ishgard for good."),
+        ("TEXT_MANFST009_00700_TODO_00", "Travel to the Highlands."),
+        ("TEXT_MANFST009_00700_TODO_01", "Speak with Alphinaud."),
+        ("TEXT_MANFST009_00700_TODO_02", "Report to Alphinaud."),
+    };
+
+    [Fact]
+    public void ReadyToHandInIsNotFinished()
+    {
+        var steps = new[] { 1, 2, 255, 0, 0 };
+        // At the last step the entry for reaching it shows, never the one written for handing it in.
+        var atLast = JournalText.Journal(HandIn, JournalText.Final, steps);
+        Assert.Equal(3, atLast.Count);
+        Assert.Equal("Alphinaud is waiting for your report.", atLast[^1]);
+        Assert.DoesNotContain(atLast, l => l.Contains("resolved", StringComparison.Ordinal));
+        // Without the steps: every entry but the last.
+        Assert.Equal(atLast, JournalText.Journal(HandIn, JournalText.Final));
+        // Finished: all of it.
+        Assert.Equal(4, JournalText.Whole(HandIn).Count);
+        Assert.Equal(2, JournalText.Journal(HandIn, 2, steps).Count);
     }
 
     [Fact]
@@ -140,8 +168,21 @@ public class HelloTests
     {
         var s = new RecentSession(Guid.NewGuid(), DateTime.UtcNow, null, "", "", Array.Empty<string>(), Array.Empty<RecentQuest>(),
             new[] { "Ishgard" }, new[] { "the Vault" }, new[] { "Aymeric", "Lucia", "Estinien", "Alphinaud" });
-        Assert.Equal(new[] { "You cleared the Vault.", "You reached Ishgard for the first time.", "You met Aymeric, Lucia and Estinien." }, Welcome.Glance(new[] { s }));
+        var since = s.StartedAt.AddDays(-3);
+        Assert.Equal(new[] { "You cleared the Vault.", "You reached Ishgard for the first time.", "You met Aymeric, Lucia and Estinien." }, Welcome.Glance(new[] { s }, journalSince: since));
         Assert.Empty(Welcome.Glance(Array.Empty<RecentSession>()));
+    }
+
+    [Fact]
+    public void InTheJournalsFirstSessionNoPlaceIsTheFirstTime()
+    {
+        // Started mid-story: everything the journal sees in its first session is "first" to it, not to you.
+        var started = DateTime.UtcNow.AddHours(-2);
+        var s = new RecentSession(Guid.NewGuid(), started, null, "", "", Array.Empty<string>(), Array.Empty<RecentQuest>(),
+            new[] { "Ishgard" }, Array.Empty<string>(), Array.Empty<string>());
+        Assert.Equal(new[] { "You reached Ishgard." }, Welcome.Glance(new[] { s }, journalSince: started));
+        Assert.Equal(new[] { "You reached Ishgard." }, Welcome.Glance(new[] { s }));
+        Assert.Equal(new[] { "You reached Ishgard for the first time." }, Welcome.Glance(new[] { s }, journalSince: started.AddDays(-1)));
     }
 
     [Fact]
@@ -172,6 +213,9 @@ public class HelloTests
         var due = Welcome.DueTheories(h.Theories, mine, 120);
         Assert.Equal(new[] { "Haurchefant is hiding something.", "Due now" }, due.Select(t => t.Body).ToArray());
         Assert.Single(Welcome.DueTheories(h.Theories, mine, 120, new HashSet<Guid> { h.Theories[0].Id }));
+        // Sealed again: not asked until the next chapter closes (then it's let back in).
+        Assert.Equal(new[] { "Haurchefant is hiding something." },
+            Welcome.DueTheories(h.Theories, mine, 120, snoozed: new HashSet<Guid> { mine[0].Id }).Select(t => t.Body).ToArray());
     }
 
     [Fact]

@@ -52,9 +52,11 @@ public sealed partial class MainWindow
             Later(() => Flip(() => config.RecordSideContent = !config.RecordSideContent));
         if (Parts.SwitchRow(row++, "##set-people", "People met", "The name of whoever speaks to you in a quest, the first time. Other players are never written down.", config.RecordPeople))
             Later(() => Flip(() => config.RecordPeople = !config.RecordPeople));
-        var step = Parts.StepperRow(row++, "##set-idle", "A new session after", "Minutes with nothing happening (the session ends when it was last heard of).", $"{config.IdleMinutes} min",
-            config.IdleMinutes > 10, config.IdleMinutes < 180);
-        if (step != 0) Later(() => Flip(() => config.IdleMinutes = Math.Clamp(config.IdleMinutes + step * 5, 10, 180)));
+        // The clock takes the new minutes at its next look (SessionClock.IdleFor keeps them to these).
+        var idle = (int)SessionClock.IdleFor(config.IdleMinutes).TotalMinutes;
+        var step = Parts.StepperRow(row++, "##set-idle", "A new session after", "Minutes with nothing happening (the session ends when it was last heard of).", $"{idle} min",
+            idle > SessionClock.LeastIdleMinutes, idle < SessionClock.MostIdleMinutes);
+        if (step != 0) Later(() => Flip(() => config.IdleMinutes = (int)SessionClock.IdleFor(idle + step * 5).TotalMinutes));
         if (Parts.ButtonRow(row++, "##set-pause", config.Paused ? "Recording is paused" : "Pause recording", "Or /sj pause and /sj resume. What's queued still goes.",
                 config.Paused ? "Resume" : "Pause", config.Paused ? Btn.Primary : Btn.Glass, config.Paused ? Icon.Play : Icon.Pause))
             Later(() => journal.Pause(!config.Paused));

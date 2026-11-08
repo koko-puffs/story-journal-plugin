@@ -44,6 +44,9 @@ public sealed class SessionRecord
     /// </summary>
     public bool WordsSent { get; set; }
 
+    /// <summary>What the end of session card needs of it, kept here (never sent): a reload leaves only the events still queued.</summary>
+    public SessionTally Tally { get; set; } = new();
+
     public bool Ended => EndedAt != null;
 
     /// <summary>As the site takes it in <c>p_session</c>: <c>{ id, startedAt, endedAt?, lastAt, title?, moods?, note? }</c>.</summary>
@@ -71,6 +74,7 @@ public sealed class SessionRecord
         o["known"] = Known;
         o["refused"] = Refused;
         o["wordsSent"] = WordsSent;
+        o["tally"] = Tally.ToDisk();
         return o;
     }
 
@@ -101,13 +105,14 @@ public sealed class SessionRecord
             Known = Json.Bool(o["known"]),
             Refused = Json.Bool(o["refused"]),
             WordsSent = Json.Bool(o["wordsSent"]),
+            Tally = SessionTally.FromDisk(o["tally"]),
         };
     }
 
     public SessionRecord Copy() => new()
     {
         Id = Id, Character = Character, StartedAt = StartedAt, EndedAt = EndedAt, LastAt = LastAt, Title = Title,
-        Moods = Moods?.ToList(), Note = Note, Dirty = Dirty, Known = Known, Refused = Refused, WordsSent = WordsSent,
+        Moods = Moods?.ToList(), Note = Note, Dirty = Dirty, Known = Known, Refused = Refused, WordsSent = WordsSent, Tally = Tally.Copy(),
     };
 }
 
@@ -120,6 +125,12 @@ public sealed class SessionRecord
 public sealed class SessionClock
 {
     public static readonly TimeSpan DefaultIdle = TimeSpan.FromMinutes(30);
+
+    /// <summary>The idle minutes Settings offers (and the most and least the clock takes).</summary>
+    public const int LeastIdleMinutes = 10, MostIdleMinutes = 180;
+
+    /// <summary>The idle time for a setting's minutes, kept to what Settings offers.</summary>
+    public static TimeSpan IdleFor(int minutes) => TimeSpan.FromMinutes(Math.Clamp(minutes, LeastIdleMinutes, MostIdleMinutes));
 
     public SessionClock(TimeSpan? idle = null) => Idle = idle ?? DefaultIdle;
 
@@ -191,19 +202,7 @@ public static class Sessions
     /// closed, else a duty cleared, else a place reached for the first time, else the last main-story
     /// quest finished; null when nothing in it says anything.
     /// </summary>
-    public static string? SuggestTitle(IEnumerable<JournalEvent> events)
-    {
-        var list = events.OrderBy(e => e.At).ToList();
-        var chapter = list.LastOrDefault(e => e.Kind == EventKind.Quest && Json.Bool(e.Data["chapterDone"]) && Json.Str(e.Data["chapter"]) is { Length: > 0 });
-        if (chapter != null) return Json.Tidy(Json.Str(chapter.Data["chapter"]), 80);
-        var duty = list.LastOrDefault(e => e.Kind == EventKind.Duty && Json.Bool(e.Data["cleared"]) && Json.Str(e.Data["name"]) is { Length: > 0 });
-        if (duty != null) return Json.Tidy(Capitalised(Json.Str(duty.Data["name"])!), 80);
-        var place = list.FirstOrDefault(e => e.Kind == EventKind.Zone && Json.Bool(e.Data["first"]) && Json.Str(e.Data["name"]) is { Length: > 0 });
-        if (place != null) return Json.Tidy("Into " + Json.Str(place.Data["name"]), 80);
-        var quest = list.LastOrDefault(e => e.Kind == EventKind.Quest && Json.Bool(e.Data["msq"]) && Json.Str(e.Data["name"]) is { Length: > 0 });
-        if (quest != null) return Json.Tidy(Json.Str(quest.Data["name"]), 80);
-        return null;
-    }
+    public static string? SuggestTitle(IEnumerable<JournalEvent> events) => SessionTally.Of(events).Title;
 
     /// <summary>"the Navel" → "The Navel" (a duty's name starts a title).</summary>
     public static string Capitalised(string s) => s.Length > 0 && char.IsLower(s[0]) ? char.ToUpperInvariant(s[0]) + s[1..] : s;
@@ -211,33 +210,125 @@ public static class Sessions
     /// <summary>The evening in numbers, for the end of session card.</summary>
     public static SessionNumbers Count(IEnumerable<JournalEvent> events, int photos)
     {
-        int quests = 0, msq = 0, cutscenes = 0, duties = 0, places = 0, people = 0, lines = 0;
-        foreach (var e in events)
+        var t = SessionTally.Of(events);
+        t.Photos = photos;
+        return t.Numbers;
+    }
+}
+
+/// <summary>
+/// A session's evening, counted as it happens (each event once, as it's recorded): the end of session
+/// card's numbers and its suggested title (<see cref="Sessions.SuggestTitle"/>'s rules), and the
+/// expansion's percentage when it began. Kept with the session on this PC, never sent.
+/// </summary>
+public sealed class SessionTally
+{
+    /// <summary>Every event in it, of whatever kind.</summary>
+    public int Events { get; set; }
+
+    public int Quests { get; set; }
+
+    public int Msq { get; set; }
+
+    public int Cutscenes { get; set; }
+
+    public int Duties { get; set; }
+
+    public int Places { get; set; }
+
+    public int People { get; set; }
+
+    public int Lines { get; set; }
+
+    public int Photos { get; set; }
+
+    /// <summary>The last chapter closed in it.</summary>
+    public string? Chapter { get; set; }
+
+    /// <summary>The last duty cleared.</summary>
+    public string? Duty { get; set; }
+
+    /// <summary>The first place reached for the first time.</summary>
+    public string? Place { get; set; }
+
+    /// <summary>The last main-story quest finished.</summary>
+    public string? Quest { get; set; }
+
+    /// <summary>The expansion's percentage when it began (null until the story was read).</summary>
+    public int? PercentAtStart { get; set; }
+
+    public SessionNumbers Numbers => new(Quests, Msq, Cutscenes, Duties, Places, People, Lines, Photos);
+
+    /// <summary>The suggested title: a chapter closed, else a duty cleared, else a first place, else the last main-story quest.</summary>
+    public string? Title =>
+        Chapter is { Length: > 0 } c ? Json.Tidy(c, 80)
+        : Duty is { Length: > 0 } d ? Json.Tidy(Sessions.Capitalised(d), 80)
+        : Place is { Length: > 0 } p ? Json.Tidy("Into " + p, 80)
+        : Quest is { Length: > 0 } q ? Json.Tidy(q, 80)
+        : null;
+
+    /// <summary>Counts an event (in the order they happened).</summary>
+    public void Add(JournalEvent e)
+    {
+        Events++;
+        switch (e.Kind)
         {
-            switch (e.Kind)
-            {
-                case EventKind.Quest:
-                    quests++;
-                    if (Json.Bool(e.Data["msq"])) msq++;
-                    break;
-                case EventKind.Cutscene:
-                    cutscenes++;
-                    break;
-                case EventKind.Duty when Json.Bool(e.Data["cleared"]):
-                    duties++;
-                    break;
-                case EventKind.Zone when Json.Bool(e.Data["first"]):
-                    places++;
-                    break;
-                case EventKind.Person:
-                    people++;
-                    break;
-                case EventKind.Line:
-                    lines++;
-                    break;
-            }
+            case EventKind.Quest:
+                Quests++;
+                if (Json.Bool(e.Data["msq"]))
+                {
+                    Msq++;
+                    if (Json.Str(e.Data["name"]) is { Length: > 0 } name) Quest = name;
+                }
+                if (Json.Bool(e.Data["chapterDone"]) && Json.Str(e.Data["chapter"]) is { Length: > 0 } chapter) Chapter = chapter;
+                break;
+            case EventKind.Cutscene:
+                Cutscenes++;
+                break;
+            case EventKind.Duty when Json.Bool(e.Data["cleared"]):
+                Duties++;
+                if (Json.Str(e.Data["name"]) is { Length: > 0 } duty) Duty = duty;
+                break;
+            case EventKind.Zone when Json.Bool(e.Data["first"]):
+                Places++;
+                if (Place == null && Json.Str(e.Data["name"]) is { Length: > 0 } place) Place = place;
+                break;
+            case EventKind.Person:
+                People++;
+                break;
+            case EventKind.Line:
+                Lines++;
+                break;
         }
-        return new SessionNumbers(quests, msq, cutscenes, duties, places, people, lines, photos);
+    }
+
+    /// <summary>A tally of these events, oldest first.</summary>
+    public static SessionTally Of(IEnumerable<JournalEvent> events)
+    {
+        var t = new SessionTally();
+        foreach (var e in events.OrderBy(e => e.At)) t.Add(e);
+        return t;
+    }
+
+    public SessionTally Copy() => (SessionTally)MemberwiseClone();
+
+    public JsonObject ToDisk() => new()
+    {
+        ["events"] = Events, ["quests"] = Quests, ["msq"] = Msq, ["cutscenes"] = Cutscenes, ["duties"] = Duties, ["places"] = Places,
+        ["people"] = People, ["lines"] = Lines, ["photos"] = Photos,
+        ["chapter"] = Chapter, ["duty"] = Duty, ["place"] = Place, ["quest"] = Quest, ["percentAtStart"] = PercentAtStart,
+    };
+
+    public static SessionTally FromDisk(JsonNode? n)
+    {
+        if (n is not JsonObject o) return new SessionTally();
+        return new SessionTally
+        {
+            Events = Json.Int(o["events"]), Quests = Json.Int(o["quests"]), Msq = Json.Int(o["msq"]), Cutscenes = Json.Int(o["cutscenes"]), Duties = Json.Int(o["duties"]),
+            Places = Json.Int(o["places"]), People = Json.Int(o["people"]), Lines = Json.Int(o["lines"]), Photos = Json.Int(o["photos"]),
+            Chapter = Json.Str(o["chapter"]), Duty = Json.Str(o["duty"]), Place = Json.Str(o["place"]), Quest = Json.Str(o["quest"]),
+            PercentAtStart = Json.Long(o["percentAtStart"]) is { } p ? (int)Math.Clamp(p, 0, 100) : null,
+        };
     }
 }
 

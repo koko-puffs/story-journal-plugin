@@ -33,7 +33,7 @@ finished quest, unless they turn spoilers off on the site:
 ## Things to know
 
 - **It's new and untested in the game.** It builds against Dalamud 15 (API 15) and its game-free
-  code is tested (160 tests), but the readings of the game below marked *unverified* have not been
+  code is tested (194 tests), but the readings of the game below marked *unverified* have not been
   seen working in a real client. Expect rough edges, and say what's wrong.
 - **What leaves the game**: the events below, the main story's reading, and your own words (notes,
   theories, the end of session card). Only the line of dialogue you save leaves, never the chat.
@@ -60,15 +60,19 @@ The calls, as the migration has them (arguments `p_token`, `p_key`, `p_session`,
 | Call | When | What |
 | --- | --- | --- |
 | `sj_plugin_hello(p_token, p_character)` | at login, after linking, every 15 min | `p_character` `{ key, name, world, progress? }`. Its answer `{ account, prefs, partners, theories, sealed, recent, notes }` is kept (`HelloAnswer`) for the windows: the spoiler and whisper settings, the welcome card's hours, partners for the pace lock, theories due, the last three sessions for the glance, unresolved notes. |
-| `sj_plugin_sync(p_token, p_key, p_session, p_events, p_progress)` | every 30 s, and within 10 s of something happening | One session's events at a time from the queue (≤ 200, ≤ 500 KB: the site takes 600,000 bytes), the session `{ id, startedAt, endedAt?, lastAt, title?, moods?, note? }`, and `progress` when it changed since the site last took it (null otherwise). Ids are made here, so a resend adds nothing. With nothing queued, the session under way goes alone when the reading changed. |
-| `sj_plugin_note(p_token, p_key, p_note)` | as soon as it can | `{ id, session?, body, subject? }`; `session` only once the site has that session. |
-| `sj_plugin_theory(p_token, p_key, p_theory)` | as soon as it can | `{ id, body, subject?, checkAfter? }`: `checkAfter` main-story quests from now (1–5000) the site asks about it. |
-| `sj_plugin_theory_answer(p_token, p_id, p_status)` | when you settle one | `called`, `missed`, `changed` (or `sealed` again). |
+| `sj_plugin_sync(p_token, p_key, p_session, p_events, p_progress)` | every 30 s, and within 10 s of something happening | One session's events at a time from the queue (≤ 200, ≤ 500 KB as the site measures it: the site takes 600,000 bytes), the session `{ id, startedAt, endedAt?, lastAt, title?, moods?, note? }`, and `progress` when it changed since the site last took it (null otherwise). Ids are made here, so a resend adds nothing. With nothing queued, the session under way goes alone when the reading changed. The batch is made and weighed on the worker. |
+| `sj_plugin_note(p_token, p_key, p_note)` | as soon as it can | `{ id, session?, body, subject? }`. A note waits while its session is still in the queue (the queue's sent first), so it's linked to it; it goes without `session` only when the site refused that session or it's gone from here. |
+| `sj_plugin_theory(p_token, p_key, p_theory)` | as soon as it can | `{ id, body, subject?, checkAfter?, checkAt? }`: `checkAt` the main-story index to ask at as this PC worked it out, `checkAfter` main-story quests from sealing (1–5000) for older sites. A theory sealed before the story's first reading after login waits until its index is worked out. |
+| `sj_plugin_theory_answer(p_token, p_id, p_status)` | when you settle one | `called`, `missed`, `changed` (or `sealed` again). Theories sealed here go before answers, and an answer to one waits until the theory has gone (the site would say `gone` and the answer would be lost; and a theory that reaches the site after its ask-at point is kept there with no `check_at`, so its answer has to follow it). |
 | `POST /functions/v1/sj-plugin-photo` | once the site has the photo's session | multipart: `token, character, session, id, at, caption, image` (a JPEG, ≤ 6 MB, ≤ 8192 px a side), header `apikey`. Answers `{ id, data }` or `{ message, hint }`. |
 
-Each kind of call is paced well under the site's hourly limits for a person (hello 240, sync 600,
-note 240, theory 120, photo 120): hello about 4 an hour, sync at most one each 10 s (360) and usually
-two a minute, notes and theories one each 4 s while there are some, photos one each 8 s.
+Each kind of call is paced under the site's hourly limits for a person (hello 240, sync 600, note 240,
+theory 120 with the answers, photo 120), which the site's own pages share: hello about 4 an hour, sync
+at most one each 10 s (360) and usually two a minute; notes one each 4 s while there are some, at most
+200 an hour; theories and answers one each 4 s, at most 100 an hour; photos one each 8 s, at most 100
+an hour (`Pace`'s hourly cap, tested). The order is `Core/Outbox.cs`'s (tested). A call that can't
+even start (the queue's disk, say) counts as failed and is tried again after the backoff (said once
+in the log), so syncing never stops waiting for an answer that isn't coming.
 
 **Refusals** (PostgREST's `{ message, hint, code }`; `Core/SyncPolicy.cs`, tested):
 
@@ -77,15 +81,24 @@ two a minute, notes and theories one each 4 s while there are some, photos one e
 - `off`: Story Journal (or cloud saving) is switched off on the site. Everything is kept; tried again
   in 10 minutes. The header says "Switched off on the site".
 - `rate`: too often. That kind of call waits 5 minutes (photos 15), then carries on.
-- `size` and `data` on a sync: the batch is halved, and again, down to the one event at fault, which
-  is set aside (`queue/aside.jsonl`: kept, never sent again, never deleted). A single event refused
-  as `data` is checked first by sending its session alone: if the session itself is refused (its time
-  off by more than the site takes, or it belongs to someone else), the session and all its events
-  are set aside; if not, only the event is.
+- `size` and `data` on a sync: with the main story's reading along, the same goes again once without
+  it (the reading may be what's too big: the site measures it as jsonb's text, `octet_length(x::text)`,
+  which has a space after every `:` and `,`; it's measured that way here too, `Json.JsonbBytes`, and
+  made to fit, so this is a backstop), and that reading isn't sent again until it changes. Then the
+  batch is halved, and again, down to the one event at fault, which is set aside
+  (`queue/aside.jsonl`: kept, never sent again, never deleted). A single event refused as `data` is
+  checked first by sending its session alone: if the session itself is refused (its time off by more
+  than the site takes, or it belongs to someone else), the session, all its events and its photos are
+  set aside (said once), and so is anything recorded for it afterwards; if it's the session under way,
+  it ends and a new one starts. If not, only the event is set aside.
 - `gone`: the thing isn't there (yet). A note or theory for a character the site hasn't heard of
-  waits for the next sync; a photo whose session hasn't reached the site waits for it; an answer for a
-  theory that's gone is let go.
-- No answer, a 5xx, a 429 without a hint: tried again after a backoff (5 s, doubling to 5 minutes).
+  rests until that character's next sync (or 10 minutes), without holding up the others; if the site
+  had heard of the character since the plugin loaded (it dropped it), or after 5 tries, it's set aside
+  (a note to `aside.jsonl`; a theory there too, and kept here, still asked about). An answer for a
+  theory that's gone is let go. A photo whose session hasn't reached the site waits for it; one the
+  site says `gone` for after its session reached it is set aside after 5 tries.
+- No answer, a 5xx, a 429 without a hint, a 401 or 403 without the `token` hint (a gateway's, say):
+  tried again after a backoff (5 s, doubling to 5 minutes). Only the `token` hint unlinks.
 
 Photo function hints: `token`, `off`, `rate`, `gone`, `upload`, `server` as above (kept and retried,
 or relink); `image`, `data`, `form` set the photo aside (`queue/aside-photos/`).
@@ -95,30 +108,42 @@ or relink); `image`, `data`, `form` set the photo aside (`queue/aside-photos/`).
 Everything waiting for the site, in the plugin's config folder (`queue/`), so nothing is lost when
 the site can't be reached, the game closes or the plugin is reloaded:
 
-- `events.jsonl`: one event a line (`{ id, kind, at, data, session, character }`), appended (and
-  flushed) the moment it happens. An event leaves only when the site has said it has it; the file is
-  then rewritten through a temporary file, so a crash mid-write leaves the old one. A line read twice
-  (a crash between an append and a rewrite) is kept once; a line that can't be read is moved to
-  `aside.jsonl`, not dropped.
+- `events.jsonl`: one event a line (`{ id, kind, at, data, session, character }`), appended the
+  moment it happens. An event leaves only when the site has said it has it; the file is then
+  rewritten through a temporary file, flushed to disk before it takes the old one's place, so a crash
+  mid-write leaves the old one. The rewrite is written outside the queue's lock (what's waiting is
+  copied under it, as the lines kept when each event was added), so the framework thread, which adds
+  events and reads the counts every frame, never waits for it; lines added meanwhile go into the new
+  file before it replaces the old. A line read twice (a crash between an append and a rewrite) is kept
+  once; a last line a crash left without its end gets one when the queue's opened, so the next line
+  isn't joined to it; a line that can't be read is moved to `aside.jsonl`, not dropped (and said, in
+  the log and a toast, once the plugin's set up).
 - `sessions.json`: the sessions those events belong to, with whether the site has each (`known`),
   whether it's still to be told something (`dirty`: its end, its last time, the card's words), and
   whether the card's words were sent (`wordsSent`: after that they aren't sent with the session's
-  later events, so what you change on the site stays). The newest 40 ended sessions with nothing
-  left to send are kept, the rest forgotten. Events whose session went missing still go, with a
+  later events, so what you change on the site stays), whether the site refused it (`refused`: its
+  events and photos are set aside, now and later), and its evening (`tally`, never sent: the end of
+  session card's numbers, title and starting percentage). Written on a worker from the sessions as
+  they are then (everything reads them from memory). The newest 40 ended sessions with nothing left to
+  send are kept, the rest forgotten. Events and photos whose session went missing still go, with a
   session made from their own times.
 - `photos/`: each photo a JPEG and its details, until the site has it.
-- `aside.jsonl`, `aside-photos/`: what the site refused outright, kept for you.
+- `aside.jsonl`, `aside-photos/`: what the site refused outright (and notes and theories for a
+  character it no longer has), kept for you.
 
 ## Sessions (`Core/Sessions.cs`, `Session/Journal.cs`)
 
 A session is one sitting with one character. It starts with the first thing that happens after login
-(moving counts), and ends at logout, at `/sj end`, or after **30 minutes** (Settings: 10–180) with
-nothing happening: it then ends when it was last heard of, and the next thing starts a new one.
+(moving counts), and ends at logout, at `/sj end`, or after **30 minutes** (Settings: 10–180, taken at
+once) with nothing happening: it then ends when it was last heard of, and the next thing starts a new
+one. One the site refuses while it's under way ends then, and a new one starts.
 Another character's first event ends the last one's session. A reload picks the session under way up
 again; one left open long ago (a crash) is ended at its last time. Its id is made here.
 
 The **end of session card** shows at logout and `/sj end` (not after an idle: you're away), for a
-session with anything in it or at least 10 minutes long.
+session with anything in it or at least 10 minutes long. Its numbers, title and the percentage it
+began at are counted as things happen and kept with the session (`SessionTally`), so a reload (which
+leaves only the events still queued here) loses none of them.
 
 ## Recording (`Session/Recorder.cs`)
 
@@ -130,10 +155,10 @@ written but the baseline keeps up, so resuming doesn't write what happened meanw
 | Kind | How it's noticed | Data |
 | --- | --- | --- |
 | `accept` | a new id in QuestManager's quest log (`NormalQuests`) | `{ id, name, msq }` |
-| `quest` | an id gone from the log that `IsQuestComplete` says is done (checked for 10 s: the game may mark it a moment after; gone and not done is abandoned, not written) | `{ id, name, level, msq, msqIndex?, expansion, chapter?, chapterDone?, expansionDone?, place, journal, people }`: the journal is the quest's whole text sheet (made on a worker), cut to 12 entries of 1,200 letters (the first and the last eleven, so the ending the recaps read is kept); `people` the people met named in it |
+| `quest` | an id gone from the log that `IsQuestComplete` says is done (checked for 10 s: the game may mark it a moment after; gone and not done is abandoned, not written); and, as a backstop, a main-story quest newly done in the reading of the quests done (taken and finished between two looks at the log), each written once (`Finishes`). Whether it's the main story's, its index and chapter come from the catalog and the quests done read then, so they're right before the story's first reading after login; before the catalog's read, it waits for it | `{ id, name, level, msq, msqIndex?, expansion, chapter?, chapterDone?, expansionDone?, place, journal, people }`: the journal is the quest's whole text sheet (made on a worker), cut to 12 entries of 1,200 letters (the first and the last eleven, so the ending the recaps read is kept); `people` the people met named in it |
 | `cutscene` | `OccupiedInCutSceneEvent`, `WatchingCutscene78` or `WatchingCutscene`, from rise to fall (3 s at least) | `{ questId?, place, seconds }`: the current main-story quest when it's taken |
-| `zone` | a new territory once the loading screen's gone (not inside a duty) | `{ id, name, region, first }`: `first` from the character's visited set (`CharacterMemory.Visited`, in the plugin's config) |
-| `duty` | IDutyState's start (or being in a duty without it: from then) and completion; written when you leave | `{ id, name, type, cleared, seconds }` (`id` the ContentFinderCondition row, `type` "dungeon", "trial", "raid"…) |
+| `zone` | a new territory once the loading screen's gone (not inside a duty) | `{ id, name, region, first }`: `first` is first **since the journal began** for this character (its visited set, `CharacterMemory.Visited`, in the plugin's config, empty when the journal starts mid-story), not first ever |
+| `duty` | IDutyState's start (or being in a duty without it: from then) and completion; written when you leave | `{ id, name, type, cleared, seconds }` (`id` the ContentFinderCondition row; `type` in English whatever the client's language, from its `ContentType` row: "dungeon", "guildhest", "trial", "raid", "ultimate raid", "deep dungeon"…, "duty" for one not known; the site reads "dungeon", "trial", "raid" and "guildhest" in it) |
 | `level` | a higher level on the same job | `{ job, level }` |
 | `person` | the speaker of the `Talk` window during a quest's talk or a cutscene (`OccupiedInQuestEvent`, `OccupiedInCutSceneEvent`), the first time this character met them; not "???" or yourself | `{ name, place, questId? }` |
 | `line` | `/sj line` or its key: the last `Talk` line | `{ speaker, text, questId?, place }` |
@@ -154,8 +179,10 @@ As Glamour Studio's shots: the HUD is hidden (as Scroll Lock does) for a few fra
 frame is grabbed before ImGui draws (no plugin window in it either), the HUD shown again; on a
 worker the picture is made at most 2560 on its long side (1920 if that's still too big) and written
 as a JPEG (WIC through Dalamud's texture readback) at the first quality under 5 MB, then kept in the
-queue. It goes to the site once the site has its session. *Unverified in the game for this plugin*
-(the same code works in Glamour Studio's).
+queue. Making it is given up after 25 s ("Try again"), and then it's never kept, even if it finishes
+after (it's either given up or kept, never both). It goes to the site once the site has its session;
+one whose session the site refused is set aside. *Unverified in the game for this plugin* (the same
+code works in Glamour Studio's).
 
 ## The main story (`Core/Msq.cs`, `Game/Sheets.cs`, `Session/Story.cs`)
 
@@ -205,7 +232,9 @@ sheet's row less 65536; both are handled (`QuestIds`). From these, on a worker (
   entry of the quest before, and the people met named in it; the next three duties
   (`questsAway` counts the current quest as 1); and a good place to stop, the nearer of the chapter's
   end and the quest before the next duty (the chapter when they're the same). Kept under the site's
-  32 KB: the current journal's earliest entries go first, then later expansions' chapters.
+  32 KB as the site measures it (jsonb's text, `Json.JsonbBytes`; made to fit 30,000): the chapters of
+  expansions not reached go first, then the chapters altogether, then the current journal's earliest
+  entries.
 - `chapterDone` and `expansionDone` on a quest event: every quest of its chapter (expansion) on the
   road is done with it.
 - The Codex's corpus: the whole journal of every main-story quest finished, the current quest's so
@@ -216,7 +245,11 @@ digits of the number ending its `Id` + `/` + its `Id` (e.g. `quest/006/ManFst001
 `RawRow` columns 0 (the key) and 1 (the text). `…_SEQ_nn` rows are the journal's entries, in number
 order; `…_TODO_nn` the objectives, the nth belonging to the step in the Quest sheet's
 `TodoParams[n].ToDoCompleteSeq`. The journal "up to a step" is the entries numbered below the
-quest's sequence (the first as soon as it's taken; all of them at the last step, 255). Text is
+quest's sequence (the first as soon as it's taken). At the last step (255, ready to hand in) the quest
+isn't finished: the entries up to the highest step its to-dos name below 255 (every entry but the
+last, without them). A quest usually has one entry more than its to-dos, written for handing it in,
+which tells how it ends: it's only ever shown, sent or kept once the quest is finished (its whole
+journal). Text is
 tidied: runs of spaces as one, no space before punctuation (where the game fills in a name, which
 `ExtractText` leaves out). *Unverified*: that SEQ numbering lines up with the quest's sequence this
 way, and the empty spots where the game names the player.
@@ -251,7 +284,9 @@ screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group P
 - **Welcome back** (`WelcomeWindow`): after login, when the last session (as hello says, not the one
   under way) ended at least the site's `welcomeHours` ago (0: every login), once the story's read.
   "Last played Saturday, 2 days ago"; three lines of story at a glance (the last journal lines of the
-  last main-story quests finished, from hello's `recent`; else what the sessions did instead); the
+  last main-story quests finished, from hello's `recent`; else what the sessions did instead: a place
+  is "for the first time" only in a session after the journal's first with the character, since in
+  that one every place is new to the journal); the
   next step (the current quest and its objectives); your thought from the last end of session card
   (else your newest unresolved note); **Flag on map**, **Longer recap** (the site's recap page),
   **Who's who** (the Codex tab), **Got it**; and the tick for showing it (the plugin's own switch;
@@ -270,8 +305,10 @@ screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group P
     site; people met and places been that the Codex has no entry for.
   - *Notes*: a note (and who or what it's about); notes waiting to send; your unresolved notes (from
     hello).
-  - *Theories*: seal one (asked about in 5, 10 or 25 main-story quests, or not); those due, to
-    settle (called it, missed it, changed my mind); those sealed here; how many are sealed in all.
+  - *Theories*: seal one (asked about in 5, 10 or 25 main-story quests, or not; sealed before the
+    story's read after login, it counts from where the first reading says you are); those due, to
+    settle (called it, missed it, changed my mind, or sealed again: then asked again when the next
+    chapter closes); those sealed here; how many are sealed in all.
   - *Settings*: below.
 - **The tracker** (`TrackerWindow`): the expansion and its percentage, a bar, the next duty ("4
   quests to the next duty"; its name too unless spoilers are strict), the pace lock's warning, and
@@ -314,9 +351,10 @@ The **pace lock**: hello's partners with your lock on (`lock`); you're warned wh
   then; not while typing in the game's chat or a plugin's field. Held down it fires once.
 - **Offline**: what's waiting, what was set aside, the Codex's state; Send now, Fetch the Codex again.
 
-Per character (`CharacterMemory`, by key): the zones visited, the people met (name, place, when, the
-quest), the theories sealed here (with the index at which to ask), theories answered, when the
-welcome card last showed. Notes and answers wait in `PendingNotes` and `PendingAnswers` until sent.
+Per character (`CharacterMemory`, by key): the zones visited since the journal began, the people met
+(name, place, when, the quest), the theories sealed here (with the index at which to ask), theories
+answered and those sealed again (until the next chapter closes), when the journal's first session
+with it began, when the welcome card last showed. Notes and answers wait in `PendingNotes` and `PendingAnswers` until sent.
 
 ## Commands
 
@@ -330,8 +368,10 @@ Theories tab); `/sj end` ends the session (its card); `/sj pause` and `/sj resum
 
 Nothing blocks the framework thread: the catalog, quests' text, the story's reading and the Codex's
 matching run on workers (one reading at a time, started when what it depends on changes); every call
-to the site and every photo's making and sending too. The framework thread reads the game (cheap
-reads, twice a second), appends a line to the queue's file per event, and draws. The Codex's pattern
+to the site and every photo's making and sending too, and the queue's batches, rewrites and
+`sessions.json`. The framework thread reads the game (cheap reads, twice a second), appends a line to
+the queue's file per event, and draws; the queue's counts are read without its lock. A Codex fetch
+under way at unload is stopped before the connection's let go, and ends quietly. The Codex's pattern
 cache is thread-safe; Lumina's sheets are read from both (they're read-only).
 
 Every game read is guarded (null pointers, not logged in, a loading screen, a patch that moved
@@ -345,7 +385,7 @@ in `Dispose`, which also keeps the session under way open for a reload to pick u
 StoryJournal/
   Core/        game-free and tested: the site link and calls, events, sessions, the queue, the main
                story's catalog and progress, journal text, hello and the welcome card, the pace
-               lock, the Codex, keys, photos' upload, the sync's policy
+               lock, the Codex, keys, photos' upload, the sync's policy and order (Outbox)
   Game/        reading the game: the player, quests, the scenario tree, sheets, places and duties,
                the Talk window, the map flag, keys
   Session/     the recorder, the story, the sync, photos, the Codex's copy, the journal (the heart)
@@ -397,3 +437,24 @@ duties, levels, people met, lines saved and photos, kept on this PC until the si
 story's reading (progress, chapters, the duties ahead); Welcome back, the journal window, the
 tracker, arrival cards and Who's that?, capture toasts, the end of session card and milestones;
 notes and theories; the pace lock.
+
+- The current quest's journal, at its last step (ready to hand in), stops at the step's own entry:
+  the entry written for handing it in only shows once it's finished.
+- The main story's reading is measured as the site measures it and made to fit (chapters first); if
+  the site still won't take it with the queue, the queue goes without it.
+- A note goes once its session has reached the site, so it's linked to it. Theories go before
+  answers, and an answer waits for its theory. Something the site says is `gone` doesn't hold up the
+  rest; for a character the site dropped, it's kept aside on this PC.
+- A session the site refuses: its events and photos, and anything recorded for it after, are kept
+  aside (said once), and if it was under way a new one starts.
+- A quest finished just after login is told as the main story's (its index and chapter), and a theory
+  sealed then is asked about from where you really are. A main-story quest taken and finished between
+  two looks at the quest log is still written, once.
+- Calls are paced under the site's hourly limits; one that can't start is tried again later. Only the
+  site's `token` refusal unlinks.
+- Duty types are the same English words whatever the client's language.
+- The queue never makes the game wait while it rewrites its file; its files are flushed to disk
+  before they replace the old, and a line a crash cut short isn't joined to the next.
+- The end of session card's numbers survive a reload. A photo that took too long is given up for
+  good (no second copy). Sealed again: asked again when the next chapter closes. Welcome back says
+  "for the first time" only after the journal's first session. Settings' idle minutes apply at once.

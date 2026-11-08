@@ -41,6 +41,18 @@ public sealed class SealedTheory
 
     /// <summary>How many main-story quests from sealing to ask (sent to the site as <c>checkAfter</c>).</summary>
     public int CheckAfter { get; set; }
+
+    /// <summary>
+    /// Sealed before the story was read (just after login): its ask-at point (<see cref="DueIndex"/>) is
+    /// worked out once it is, and it isn't sent until then.
+    /// </summary>
+    public bool AwaitingIndex { get; set; }
+
+    /// <summary>The site no longer has its character: kept here (and in the queue's aside.jsonl), never sent.</summary>
+    public bool Aside { get; set; }
+
+    /// <summary>How many times the site answered "gone" (its character not there).</summary>
+    public int GoneTries { get; set; }
 }
 
 /// <summary>A note written in the game, kept until the site has it.</summary>
@@ -58,6 +70,9 @@ public sealed class PendingNote
     public string Subject { get; set; } = string.Empty;
 
     public DateTime At { get; set; }
+
+    /// <summary>How many times the site answered "gone" (its character not there).</summary>
+    public int GoneTries { get; set; }
 }
 
 /// <summary>A theory's answer given in the game, kept until the site has it.</summary>
@@ -77,7 +92,7 @@ public sealed class CharacterMemory
 
     public string World { get; set; } = string.Empty;
 
-    /// <summary>Zones visited since the journal began (a zone event's <c>first</c>).</summary>
+    /// <summary>Zones visited since the journal began (a zone event's <c>first</c>: first since the journal began, not ever).</summary>
     public HashSet<uint> Visited { get; set; } = new();
 
     /// <summary>People met, in the order they were met.</summary>
@@ -87,6 +102,12 @@ public sealed class CharacterMemory
 
     /// <summary>Theories answered here (the site's due ones too), so they aren't asked again before the site hears.</summary>
     public HashSet<Guid> Answered { get; set; } = new();
+
+    /// <summary>Theories sealed again (not settled yet): not asked again until the next chapter closes.</summary>
+    public HashSet<Guid> Snoozed { get; set; } = new();
+
+    /// <summary>When the journal's first session with this character began (a place is "for the first time" only after it).</summary>
+    public DateTime? JournalSince { get; set; }
 
     /// <summary>When the Welcome back card last showed (once a login).</summary>
     public DateTime? WelcomedAt { get; set; }
@@ -116,7 +137,7 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>People met in quests' dialogue are recorded (the speaker's name, the first time).</summary>
     public bool RecordPeople { get; set; } = true;
 
-    /// <summary>Minutes of nothing happening before a session ends (the next thing starts a new one).</summary>
+    /// <summary>Minutes of nothing happening before a session ends (the next thing starts a new one): 10 to 180 (<see cref="Core.SessionClock.IdleFor"/>).</summary>
     public int IdleMinutes { get; set; } = 30;
 
     /// <summary>The key that saves the line on screen ("F11"; empty: none).</summary>

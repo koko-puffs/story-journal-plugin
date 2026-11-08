@@ -55,11 +55,12 @@ internal sealed record StoryInputs(
 public sealed class Story : IDisposable
 {
     private readonly Task<MsqCatalog?> building;
-    private readonly ConcurrentQueue<StoryState> results = new();
+    private readonly ConcurrentQueue<(int Generation, StoryState State)> results = new();
     private readonly ConcurrentDictionary<uint, string> wholeJournal = new();
     private readonly CancellationTokenSource stop = new();
     private readonly CancellationToken stopping;
     private Task? refreshing;
+    private int generation;
     private string signature = string.Empty;
     private HashSet<uint> done = new();
     private DateTime doneReadAt = DateTime.MinValue;
@@ -97,6 +98,23 @@ public sealed class Story : IDisposable
     /// <summary>The main story's quests done, as last read.</summary>
     public IReadOnlySet<uint> Done => done;
 
+    /// <summary>Goes up each time which quests are done is read (the recorder's backstop for finishes it missed).</summary>
+    public int DoneVersion { get; private set; }
+
+    /// <summary>Another character: the reading under way and the last are let go (they were the other's).</summary>
+    public void Reset()
+    {
+        generation++;
+        while (results.TryDequeue(out _))
+        {
+        }
+        Now = null;
+        Version++;
+        signature = string.Empty;
+        done = new HashSet<uint>();
+        doneStale = true;
+    }
+
     /// <summary>A quest was finished or the log changed: read which are done again.</summary>
     public void DoneChanged() => doneStale = true;
 
@@ -107,9 +125,10 @@ public sealed class Story : IDisposable
     /// </summary>
     public void Tick(DateTime now, PlayerNow player, IReadOnlyDictionary<uint, int> accepted, IReadOnlyList<string> people, IReadOnlyList<string> places, Codex codex, int codexVersion)
     {
-        while (results.TryDequeue(out var state))
+        while (results.TryDequeue(out var reading))
         {
-            Now = state;
+            if (reading.Generation != generation) continue;
+            Now = reading.State;
             Version++;
         }
         if (Catalog is not { } catalog) return;
@@ -118,6 +137,7 @@ public sealed class Story : IDisposable
             done = Quests.Done(catalog.Order.Select(q => q.Id));
             doneReadAt = now;
             doneStale = false;
+            DoneVersion++;
         }
         var (scenario, _) = Quests.Scenario();
         var sig = string.Join('|', done.Count, done.Sum(d => (long)d), string.Join(',', accepted.OrderBy(a => a.Key).Select(a => $"{a.Key}:{a.Value}")),
@@ -125,11 +145,12 @@ public sealed class Story : IDisposable
         if (sig == signature || refreshing is { IsCompleted: false }) return;
         signature = sig;
         var inputs = new StoryInputs(done.ToHashSet(), new Dictionary<uint, int>(accepted), scenario, player.Level, player.Job, people.ToList(), places.ToList(), codex);
+        var gen = generation;
         refreshing = Task.Run(() =>
         {
             try
             {
-                if (!stopping.IsCancellationRequested) results.Enqueue(Read(catalog, inputs));
+                if (!stopping.IsCancellationRequested) results.Enqueue((gen, Read(catalog, inputs)));
             }
             catch (Exception ex)
             {
@@ -156,8 +177,9 @@ public sealed class Story : IDisposable
         if (current != null && taken)
         {
             var rows = JournalReader.Rows(current.Id);
-            journal = JournalText.Journal(rows, sequence);
-            objectives = JournalText.Objectives(rows, JournalReader.TodoSteps(current.Id), sequence);
+            var steps = JournalReader.TodoSteps(current.Id);
+            journal = JournalText.Journal(rows, sequence, steps);
+            objectives = JournalText.Objectives(rows, steps, sequence);
         }
         var previous = path.Previous(current);
         string? previousLine = null;
@@ -189,24 +211,23 @@ public sealed class Story : IDisposable
     }
 
     /// <summary>
-    /// A quest's event, made on a worker (its journal is read from the sheets): <paramref name="state"/>
-    /// is the reading from before it was finished.
+    /// A quest's event, made on a worker (its journal is read from the sheets). <paramref name="catalog"/>,
+    /// <paramref name="done"/> and <paramref name="started"/> are read on the framework thread when it was
+    /// finished, so a main-story quest is told as one (its index, its chapter) even before the story's
+    /// first reading after login. The road is returned too (for the chapter's card).
     /// </summary>
-    public QuestFinished Finished(uint quest, StoryState? state, IReadOnlyList<string> people)
+    public (QuestFinished Event, MsqPath? Path) Finished(uint quest, MsqCatalog? catalog, IReadOnlySet<uint>? done, IReadOnlySet<uint> started, IReadOnlyList<string> people)
     {
         var rows = JournalReader.Rows(quest);
         var journal = JournalText.Whole(rows);
-        var msq = state?.Catalog.Quest(quest);
-        if (msq != null && state != null)
+        var named = Codex.Empty.Named(string.Join("\n", journal), people);
+        if (catalog != null && done != null && catalog.Contains(quest))
         {
-            var chapter = msq.Chapter != 0 ? state.Catalog.Chapter(msq.Chapter)?.Name : null;
-            var named = Codex.Empty.Named(string.Join("\n", journal), people);
-            return new QuestFinished(msq.Id, msq.Name, msq.Level, true, state.Catalog.IndexOf(msq.Id), msq.Expansion, chapter,
-                state.Path.ChapterDone(msq), state.Path.ExpansionDone(msq), msq.Place, journal, named);
+            var path = catalog.Path(done, started);
+            if (catalog.Finished(quest, path, journal, named) is { } msq) return (msq, path);
         }
         var (name, level, expansion, place) = Quests.Info(quest);
-        return new QuestFinished(QuestIds.Row(quest), name, level, false, null, expansion, null, false, false, place, journal,
-            Codex.Empty.Named(string.Join("\n", journal), people));
+        return (new QuestFinished(QuestIds.Row(quest), name, level, false, null, expansion, null, false, false, place, journal, named), null);
     }
 
     public void Dispose() => stop.Cancel();

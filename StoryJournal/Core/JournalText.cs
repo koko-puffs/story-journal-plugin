@@ -56,20 +56,28 @@ public static class JournalText
     }
 
     /// <summary>
-    /// The journal as far as the quest's <paramref name="sequence"/>: the entries numbered below it (the
-    /// game's journal shows one entry per step reached; the first as soon as the quest's taken), all of
-    /// them once it's finished or at its last step (<see cref="Final"/>).
+    /// The journal of a quest under way, as far as its <paramref name="sequence"/>: the entries numbered
+    /// below it (the game's journal shows one entry per step reached; the first as soon as the quest's
+    /// taken). At its last step (<see cref="Final"/>, ready to hand in) it's not finished: the entries up
+    /// to the last step's own (numbered at most the highest step the to-dos name below <see cref="Final"/>,
+    /// <paramref name="todoSequences"/>), never the one written for handing it in, which tells how it ends.
+    /// Without the to-dos' steps, every entry but the last. A finished quest's is <see cref="Whole"/>.
     /// </summary>
-    public static List<string> Journal(IEnumerable<(string Key, string Text)> rows, int sequence)
+    public static List<string> Journal(IEnumerable<(string Key, string Text)> rows, int sequence, IReadOnlyList<int>? todoSequences = null)
     {
         var entries = Entries(rows);
-        if (sequence >= Final) return entries.Select(e => e.Text).ToList();
+        if (sequence >= Final)
+        {
+            var steps = todoSequences?.Where(s => s is > 0 and < Final).ToList();
+            if (steps is { Count: > 0 }) return entries.Where(e => e.Number <= steps.Max()).Select(e => e.Text).ToList();
+            return entries.Take(Math.Max(1, entries.Count - 1)).Select(e => e.Text).ToList();
+        }
         var upTo = Math.Max(1, sequence);
         return entries.Where(e => e.Number < upTo).Select(e => e.Text).ToList();
     }
 
-    /// <summary>The whole journal of a finished quest.</summary>
-    public static List<string> Whole(IEnumerable<(string Key, string Text)> rows) => Journal(rows, Final);
+    /// <summary>The whole journal of a finished quest (its hand-in entry too).</summary>
+    public static List<string> Whole(IEnumerable<(string Key, string Text)> rows) => Entries(rows).Select(e => e.Text).ToList();
 
     /// <summary>
     /// The objectives for the step the quest is on: the to-do lines whose step (the Quest sheet's

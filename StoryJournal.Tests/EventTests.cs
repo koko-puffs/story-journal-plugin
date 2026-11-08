@@ -103,6 +103,24 @@ public class EventShapeTests
     [InlineData("", "duty")]
     public void DutyTypesAreOneWord(string content, string word) => Assert.Equal(word, Events.DutyType(content));
 
+    [Theory]
+    [InlineData(2u, "dungeon")]
+    [InlineData(3u, "guildhest")]
+    [InlineData(4u, "trial")]
+    [InlineData(5u, "raid")]
+    [InlineData(28u, "ultimate raid")]
+    [InlineData(30u, "variant and criterion dungeon")]
+    [InlineData(37u, "chaotic alliance raid")]
+    [InlineData(9999u, "duty")]
+    public void DutyTypesAreTheSameWordsInEveryLanguage(uint contentType, string word)
+    {
+        // By the content type's row, never its name in the client's language ("Donjons", "Prüfungen"…).
+        Assert.Equal(word, Events.DutyType(contentType));
+        // The site's own reading of it (firsts.ts, spoilers.ts) finds what it looks for.
+        if (contentType is 2 or 30) Assert.Contains("dungeon", word);
+        if (contentType is 5 or 28 or 37) Assert.Contains("raid", word);
+    }
+
     [Fact]
     public void ASessionHasTheSitesFields()
     {
@@ -171,9 +189,35 @@ public class ProgressShapeTests
         var big = Sample(journalEntries: 40, chapters: 300);
         Assert.True(Json.Bytes(big.ToJson()) > Progress.MaxBytes);
         var sent = big.ToSite();
-        Assert.True(Json.Bytes(sent) <= Progress.MaxBytes);
+        Assert.True(Json.JsonbBytes(sent) <= Progress.MaxBytes);
         // The latest entries are kept.
         Assert.StartsWith("Entry 39", (string)sent["current"]!["journal"]!.AsArray()[^1]!);
+    }
+
+    [Fact]
+    public void TheSitesMeasureIsJsonbsText()
+    {
+        // As Postgres writes it: {"a": 1, "b": [1, 2, {}], "c": "x\"é\n\u0001</", "d": null, "e": [], "g": 1000} is 80 bytes.
+        var o = new JsonObject
+        {
+            ["a"] = 1, ["b"] = new JsonArray(1, 2, new JsonObject()), ["c"] = "x\"é\n\u0001</", ["d"] = null, ["e"] = new JsonArray(), ["g"] = 1000,
+        };
+        Assert.Equal(80, Json.JsonbBytes(o));
+    }
+
+    [Fact]
+    public void AReadingUnderTheLimitCompactButOverItAsJsonbIsTrimmedChaptersFirst()
+    {
+        // Many chapters: under 30,000 bytes written compactly (as it used to be measured), but jsonb's
+        // spaces take it past the 32,768 the site keeps.
+        var p = Sample(journalEntries: 3, chapters: 450);
+        Assert.True(Json.Bytes(p.ToJson()) <= 30_000, Json.Bytes(p.ToJson()).ToString());
+        Assert.True(Json.JsonbBytes(p.ToJson()) > 32_768, Json.JsonbBytes(p.ToJson()).ToString());
+        var sent = p.ToSite();
+        Assert.True(Json.JsonbBytes(sent) <= Progress.MaxBytes);
+        // The chapters went, the journal stayed whole.
+        Assert.Equal(3, sent["current"]!["journal"]!.AsArray().Count);
+        Assert.True(sent["chapters"]!.AsArray().Count < 450);
     }
 
     [Theory]

@@ -192,9 +192,38 @@ public static class Events
     }
 
     /// <summary>
-    /// The duty's type in a word, as the site shows it ("dungeon", "trial", "raid"), from the game's
-    /// content type ("Dungeons", "Trials", "Raids"…).
+    /// The game's content types (the <c>ContentType</c> sheet's rows) by their English names, so a duty's
+    /// type is the same words whatever the client's language (the site reads "dungeon", "trial", "raid" and
+    /// "guildhest" in them).
     /// </summary>
+    private static readonly Dictionary<uint, string> ContentTypes = new()
+    {
+        [2] = "Dungeons",
+        [3] = "Guildhests",
+        [4] = "Trials",
+        [5] = "Raids",
+        [6] = "PvP",
+        [7] = "Quest Battles",
+        [9] = "Treasure Hunt",
+        [16] = "Disciples of the Land",
+        [19] = "Gold Saucer",
+        [21] = "Deep Dungeons",
+        [26] = "Eureka",
+        [27] = "The Masked Carnivale",
+        [28] = "Ultimate Raids",
+        [29] = "Save the Queen",
+        [30] = "Variant and Criterion Dungeons",
+        [37] = "Chaotic Alliance Raid",
+        [38] = "Occult Crescent",
+    };
+
+    /// <summary>
+    /// The duty's type in a word, as the site shows it ("dungeon", "trial", "raid"), from the game's
+    /// content type's row (its English name); "duty" for one not known here.
+    /// </summary>
+    public static string DutyType(uint contentType) => ContentTypes.TryGetValue(contentType, out var name) ? DutyType(name) : "duty";
+
+    /// <summary>A content type's English name in a word, lower case and singular ("Dungeons" → "dungeon").</summary>
     public static string DutyType(string? contentType)
     {
         var t = Json.Tidy(contentType).ToLowerInvariant();

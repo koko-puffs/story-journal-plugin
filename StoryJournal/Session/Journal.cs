@@ -27,7 +27,9 @@ public sealed class Journal : IDisposable
     private readonly KeyWatch keys = new();
     private readonly SessionClock clock;
     private readonly List<JournalEvent> sessionEvents = new();
-    private readonly Dictionary<Guid, int> percentAtStart = new();
+
+    /// <summary>Quests finished before the main story's catalog was read: written once it is (to know which are the story's).</summary>
+    private readonly List<(uint Quest, DateTime At)> finishWaiting = new();
     private DateTime lastLook;
     private DateTime lastPut;
     private bool memoryDirty;
@@ -49,21 +51,27 @@ public sealed class Journal : IDisposable
         }
         var dir = Services.PluginInterface.GetPluginConfigDirectory();
         Queue = new EventQueue(Path.Combine(dir, "queue"));
-        Queue.Problem += p => Services.Log.Warning($"Story Journal: {p}");
         Sync = new SiteSync(config, Queue) { Character = HelloFor, OpenSession = () => clock?.Current };
         Sync.HelloArrived += OnHello;
         Sync.Said += t => AddToast(t, null, null, ToastKind.Plain);
+        Sync.SessionRefused += OnSessionRefused;
         Codex = new CodexStore(dir, Sync.Site.Http);
         Story = new Story();
         Photos = new Photos(Queue);
         Photos.Taken += OnPhoto;
         Photos.Failed += why => AddToast("No photo", why, null, ToastKind.Bad);
-        clock = new SessionClock(TimeSpan.FromMinutes(Math.Clamp(config.IdleMinutes, 5, 240)));
+        clock = new SessionClock(SessionClock.IdleFor(config.IdleMinutes));
         Recorder = new Recorder(this);
         talk = new TalkReader();
         talk.Line += OnTalk;
         Services.ClientState.Login += OnLogin;
         Services.ClientState.Logout += OnLogout;
+        // What went wrong opening the queue, said now that someone's listening.
+        foreach (var problem in Queue.LoadProblems)
+        {
+            Services.Log.Warning($"Story Journal: {problem}");
+            AddToast("Some of the queue couldn't be read", problem, null, ToastKind.Bad);
+        }
     }
 
     public Configuration Config { get; }
@@ -93,8 +101,6 @@ public sealed class Journal : IDisposable
 
     /// <summary>What happened in the session under way (since the plugin loaded, and what's still queued from before).</summary>
     public IReadOnlyList<JournalEvent> SessionEvents => sessionEvents;
-
-    public int SessionPhotos { get; private set; }
 
     /// <summary>The site's preferences (its defaults until hello has answered).</summary>
     public Prefs Prefs => Sync.Hello?.Prefs ?? Prefs.Default;
@@ -146,6 +152,8 @@ public sealed class Journal : IDisposable
         if (now - lastLook < Look) return;
         lastLook = now;
 
+        // Settings' idle minutes, as they are now.
+        clock.Idle = SessionClock.IdleFor(Config.IdleMinutes);
         Player = InGame.Player(Config.Salt);
         if (Player is { } player)
         {
@@ -157,6 +165,7 @@ public sealed class Journal : IDisposable
                 Recorder.Tick(now, player);
             }
             Cards(now, player);
+            StoryRead();
         }
         if (clock.CheckIdle(now) is { } idle) Ended(idle, false);
         if (clock.Current is { } cur && now - lastPut > TimeSpan.FromSeconds(30))
@@ -174,6 +183,34 @@ public sealed class Journal : IDisposable
         Toasts.RemoveAll(t => now - t.At > TimeSpan.FromSeconds(6));
     }
 
+    /// <summary>
+    /// What waited for the main story to be read: quests finished before its catalog was, theories sealed
+    /// before the first reading (their ask-at point), the session's starting percentage.
+    /// </summary>
+    private void StoryRead()
+    {
+        if (finishWaiting.Count > 0 && (Story.Catalog != null || Story.Broken))
+        {
+            var waiting = finishWaiting.ToList();
+            finishWaiting.Clear();
+            foreach (var (quest, at) in waiting) QuestFinished(quest, at);
+        }
+        if (Story.Now is not { } state) return;
+        if (clock.Current is { Tally.PercentAtStart: null } cur && state.Progress.ExpansionNow is { } e)
+            cur.Tally.PercentAtStart = Progress.Percent(e.Done, e.Total);
+        if (Memory is { } memory && memory.Theories.Any(t => t.AwaitingIndex))
+        {
+            foreach (var t in memory.Theories.Where(t => t.AwaitingIndex))
+            {
+                t.DueIndex = state.Progress.Index + t.CheckAfter;
+                if (t.SealedQuest.Length == 0) t.SealedQuest = state.Current?.Name ?? string.Empty;
+                t.AwaitingIndex = false;
+            }
+            Config.Save();
+            Sync.KickNotes();
+        }
+    }
+
     private List<string>? placesSeen;
     private int placesSeenCount = -1;
 
@@ -189,6 +226,9 @@ public sealed class Journal : IDisposable
     private void Arrive(PlayerNow player)
     {
         if (characterKey != null && clock.Current is { } other && other.Character != player.Key) Ended(clock.End(DateTime.UtcNow)!, true);
+        // Another character: the story read was the other's.
+        if (player.Key != lastCharacter) Story.Reset();
+        lastCharacter = player.Key;
         characterKey = player.Key;
         var memory = Config.Memory(player.Key);
         memory.Name = player.Name;
@@ -198,7 +238,7 @@ public sealed class Journal : IDisposable
         Recorder.Reset();
         welcomeDecided = false;
         sessionEvents.Clear();
-        SessionPhotos = 0;
+        finishWaiting.Clear();
         if (Queue.OpenSession(player.Key) is { } open)
         {
             if (DateTime.UtcNow - open.LastAt > clock.Idle)
@@ -216,6 +256,9 @@ public sealed class Journal : IDisposable
         }
         Sync.LoggedIn();
     }
+
+    /// <summary>The character the story was last read for (a login with the same one keeps the reading).</summary>
+    private string? lastCharacter;
 
     private void OnLogin()
     {
@@ -250,11 +293,15 @@ public sealed class Journal : IDisposable
         if (ended != null) Ended(ended, false);
         if (session.StartedAt == at && session.LastAt == at && Queue.Session(session.Id) == null)
         {
+            if (Story.Now?.Progress.ExpansionNow is { } e) session.Tally.PercentAtStart = Progress.Percent(e.Done, e.Total);
+            if (Memory is { JournalSince: null } memory)
+            {
+                memory.JournalSince = session.StartedAt;
+                MemoryChanged();
+            }
             Queue.PutSession(session);
             lastPut = at;
             sessionEvents.Clear();
-            SessionPhotos = 0;
-            if (Story.Now?.Progress.ExpansionNow is { } e) percentAtStart[session.Id] = Progress.Percent(e.Done, e.Total);
             if (Config.ChatMessages) Services.Chat.Print("Story Journal: a new session started.");
         }
         return session;
@@ -277,21 +324,36 @@ public sealed class Journal : IDisposable
             return;
         }
         sessionEvents.Add(e);
+        session.Tally.Add(e);
         Sync.Kick();
     }
 
-    /// <summary>A quest was finished: its event is made on a worker (its journal read from the sheets), then written.</summary>
+    /// <summary>
+    /// A quest was finished: its event is made on a worker (its journal read from the sheets), then
+    /// written. Whether it's the main story's, its index and its chapter come from the catalog and the
+    /// quests done read now, so they're right even before the story's first reading after login; before
+    /// the catalog itself is read, it waits for it.
+    /// </summary>
     public void QuestFinished(uint quest, DateTime at)
     {
         if (characterKey == null || Config.Paused) return;
-        var state = Story.Now;
+        var catalog = Story.Catalog;
+        if (catalog == null && !Story.Broken)
+        {
+            finishWaiting.Add((quest, at));
+            return;
+        }
+        var done = catalog != null ? Quests.Done(catalog.Order.Select(q => q.Id)) : null;
+        var started = Recorder.Accepted.Keys.ToHashSet();
         var people = Memory?.People.Select(p => p.Name).ToList() ?? new List<string>();
+        var key = characterKey;
         Task.Run(() =>
         {
             QuestFinished? q = null;
+            MsqPath? path = null;
             try
             {
-                q = Story.Finished(quest, state, people);
+                (q, path) = Story.Finished(quest, catalog, done, started, people);
             }
             catch (Exception ex)
             {
@@ -300,18 +362,26 @@ public sealed class Journal : IDisposable
             if (q == null) return;
             fromWorkers.Enqueue(() =>
             {
+                if (characterKey != key) return;
+                // Waited for the catalog: a side quest only when side content's written.
+                if (!q.Msq && !Config.RecordSideContent) return;
                 Record(EventKind.Quest, Events.Quest(q), at);
                 Story.DoneChanged();
-                if (q.Msq && q.ChapterDone && Config.ShowMilestones && q.Chapter != null) Chapter(q, state);
+                if (q.Msq && q.ChapterDone && Config.ShowMilestones && q.Chapter != null && catalog != null && path != null) Chapter(q, catalog, path);
             });
         });
     }
 
-    /// <summary>A chapter closed: its card waits for a calm moment.</summary>
-    private void Chapter(QuestFinished q, StoryState? state)
+    /// <summary>A chapter closed: its card waits for a calm moment. Theories sealed again are asked again here.</summary>
+    private void Chapter(QuestFinished q, MsqCatalog catalog, MsqPath path)
     {
-        var expansion = state?.Catalog.ExpansionName(q.Expansion) ?? string.Empty;
-        var count = state?.Path.Quests.Count(x => state.Catalog.Quest(q.Id) is { } mq && x.Chapter == mq.Chapter) ?? 0;
+        var expansion = catalog.ExpansionName(q.Expansion);
+        var count = catalog.Quest(q.Id) is { } mq ? path.Quests.Count(x => x.Chapter == mq.Chapter) : 0;
+        if (Memory is { Snoozed.Count: > 0 } memory)
+        {
+            memory.Snoozed.Clear();
+            MemoryChanged();
+        }
         milestoneWaiting = new MilestoneCard(q.Chapter!, expansion, q.Name, q.Journal.LastOrDefault(), count, q.ExpansionDone, DueTheories(), DateTime.UtcNow);
     }
 
@@ -320,24 +390,38 @@ public sealed class Journal : IDisposable
     {
         var memory = Memory;
         if (memory == null) return new List<DueTheory>();
-        var local = memory.Theories.Where(t => t.DueIndex > 0).Select(t => new LocalTheory(t.Id, t.Body, t.DueIndex, t.SealedAt, t.SealedQuest, t.Answered)).ToList();
-        return Core.Welcome.DueTheories(Sync.Hello?.Theories ?? Array.Empty<DueTheory>(), local, Story.Now?.Progress.Index ?? 0, memory.Answered);
+        var local = memory.Theories.Where(t => t.DueIndex > 0 && !t.AwaitingIndex).Select(t => new LocalTheory(t.Id, t.Body, t.DueIndex, t.SealedAt, t.SealedQuest, t.Answered)).ToList();
+        return Core.Welcome.DueTheories(Sync.Hello?.Theories ?? Array.Empty<DueTheory>(), local, Story.Now?.Progress.Index ?? 0, memory.Answered, memory.Snoozed);
     }
 
-    /// <summary>The session ended: told to the site, and (at logout or /sj end) its card shown.</summary>
+    /// <summary>
+    /// The session ended: told to the site, and (at logout or /sj end) its card shown, from what the
+    /// session kept of its evening (<see cref="SessionTally"/>: a reload doesn't lose it).
+    /// </summary>
     private void Ended(SessionRecord ended, bool card)
     {
         Queue.PutSession(ended);
         Sync.Kick();
         if (!card || !Config.ShowWrapUp) return;
-        var events = sessionEvents.Where(e => e.Session == ended.Id).ToList();
+        var numbers = ended.Tally.Numbers;
         var length = (ended.EndedAt ?? ended.LastAt) - ended.StartedAt;
-        if (events.Count == 0 && length < TimeSpan.FromMinutes(10)) return;
-        var numbers = Sessions.Count(events, SessionPhotos);
+        if (ended.Tally.Events + numbers.Photos == 0 && length < TimeSpan.FromMinutes(10)) return;
         var now = Story.Now?.Progress.ExpansionNow;
         var nowPercent = now != null ? Progress.Percent(now.Done, now.Total) : 0;
-        var before = percentAtStart.TryGetValue(ended.Id, out var p) ? p : nowPercent;
-        WrapUp = new WrapUpCard(ended, numbers, Sessions.SuggestTitle(events), now?.Name ?? string.Empty, before, nowPercent, DateTime.UtcNow);
+        var before = ended.Tally.PercentAtStart ?? nowPercent;
+        WrapUp = new WrapUpCard(ended, numbers, ended.Tally.Title, now?.Name ?? string.Empty, before, nowPercent, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// The site refused a session: if it's the one under way, it ends and a new one starts (what happens
+    /// next would only be set aside with it).
+    /// </summary>
+    private void OnSessionRefused(Guid id)
+    {
+        if (clock.Current?.Id != id || clock.End(DateTime.UtcNow) is not { } ended) return;
+        Queue.PutSession(ended);
+        sessionEvents.Clear();
+        Activity(DateTime.UtcNow);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -389,9 +473,18 @@ public sealed class Journal : IDisposable
 
     private void OnPhoto(QueuedPhoto photo)
     {
-        SessionPhotos++;
+        var today = 0;
+        if (clock.Current is { } cur && cur.Id == photo.Session)
+        {
+            today = ++cur.Tally.Photos;
+        }
+        else if (Queue.Session(photo.Session) is { } s)
+        {
+            // Its session ended while the picture was made.
+            today = ++s.Tally.Photos;
+            Queue.PutSession(s);
+        }
         Sync.Kick();
-        var today = SessionPhotos;
         AddToast("Photo taken", null, $"HUD hidden for the shot · added to this session · {Ui(today)} this session", ToastKind.Good);
         if (Services.GameGui.GameUiHidden && Config.ChatMessages)
             Services.Chat.Print("Story Journal: photo taken. It goes to the site with this session.");
@@ -423,11 +516,15 @@ public sealed class Journal : IDisposable
     {
         body = Json.Tidy(body, 400);
         if (body.Length == 0 || Memory is not { } memory) return false;
-        var index = Story.Now?.Progress.Index ?? 0;
+        // Its ask-at point counts from where you are: before the story's first reading (just after login)
+        // that isn't known, so it's worked out then (and the theory waits to go until it is).
+        var state = Story.Now;
+        var after = Math.Clamp(checkAfter, 0, 5000);
         memory.Theories.Add(new SealedTheory
         {
-            Id = Guid.NewGuid(), Body = body, Subject = subject, CheckAfter = Math.Clamp(checkAfter, 0, 5000),
-            DueIndex = checkAfter > 0 ? index + checkAfter : 0, SealedAt = DateTime.UtcNow, SealedQuest = Story.Now?.Current?.Name ?? string.Empty,
+            Id = Guid.NewGuid(), Body = body, Subject = subject, CheckAfter = after,
+            DueIndex = after > 0 && state != null ? state.Progress.Index + after : 0, AwaitingIndex = after > 0 && state == null,
+            SealedAt = DateTime.UtcNow, SealedQuest = state?.Current?.Name ?? string.Empty,
         });
         Config.Save();
         Sync.KickNotes();
@@ -444,7 +541,17 @@ public sealed class Journal : IDisposable
         Config.PendingAnswers.Add(new PendingAnswer { Id = id, Status = status });
         if (Memory is { } memory)
         {
-            memory.Answered.Add(id);
+            // Sealed again: not settled, so asked again (when the next chapter closes), not now.
+            if (status == "sealed")
+            {
+                memory.Answered.Remove(id);
+                memory.Snoozed.Add(id);
+            }
+            else
+            {
+                memory.Answered.Add(id);
+                memory.Snoozed.Remove(id);
+            }
             if (memory.Theories.FirstOrDefault(t => t.Id == id) is { } mine) mine.Answered = status != "sealed";
         }
         Config.Save();
@@ -639,7 +746,8 @@ public sealed class Journal : IDisposable
         var lastNote = recent.OrderByDescending(r => r.StartedAt).FirstOrDefault(r => r.Note.Trim().Length > 0) is { } withNote
             ? new SiteNote(Guid.Empty, withNote.Note.Trim(), string.Empty, withNote.EndedAt)
             : Core.Welcome.LastNote(Sync.Hello?.Notes ?? Array.Empty<SiteNote>());
-        return new WelcomeCard(Core.Welcome.LastEnded(recent) ?? DateTime.UtcNow, recent.Count, Core.Welcome.Glance(recent), state?.Current?.Name, next, lastNote, InGame.Position);
+        return new WelcomeCard(Core.Welcome.LastEnded(recent) ?? DateTime.UtcNow, recent.Count, Core.Welcome.Glance(recent, journalSince: Memory?.JournalSince),
+            state?.Current?.Name, next, lastNote, InGame.Position);
     }
 
     /// <summary>Opens the Welcome back card now (the window's button: whatever the time away).</summary>
@@ -655,9 +763,14 @@ public sealed class Journal : IDisposable
         if (Player is not { } p) return null;
         if (helloFor is { } cached && cached.Key == p.Key && helloForVersion == Story.Version) return cached;
         JsonObject? progress = null;
-        if (Story.Now is { } s) progress = JsonNode.Parse(s.ProgressJson) as JsonObject;
+        string? text = null;
+        if (Story.Now is { } s)
+        {
+            progress = JsonNode.Parse(s.ProgressJson) as JsonObject;
+            text = progress != null ? s.ProgressJson : null;
+        }
         helloForVersion = Story.Version;
-        return helloFor = new HelloFor(p.Key, p.Name, p.World, progress);
+        return helloFor = new HelloFor(p.Key, p.Name, p.World, progress, text);
     }
 
     /// <summary>Who hello is for, made again only when the story's read again (the sync asks each frame).</summary>
@@ -675,6 +788,7 @@ public sealed class Journal : IDisposable
         Safely(Recorder.Dispose);
         // The session under way stays open: a reload picks it up again (a long gap ends it then).
         if (clock.Current is { } cur) Safely(() => Queue.PutSession(cur));
+        Safely(Queue.Flush);
         if (memoryDirty) Safely(Config.Save);
         Safely(Photos.Dispose);
         Safely(Story.Dispose);

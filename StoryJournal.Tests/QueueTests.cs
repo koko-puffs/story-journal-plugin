@@ -34,6 +34,7 @@ public sealed class QueueTests : IDisposable
         q.PutSession(s);
         q.Add(Level(s, 41, t));
         q.Add(Level(s, 42, t.AddMinutes(1)));
+        q.Flush();
         var again = new EventQueue(dir);
         Assert.Equal(2, again.Count);
         Assert.Equal(s.Id, again.Session(s.Id)!.Id);
@@ -53,6 +54,7 @@ public sealed class QueueTests : IDisposable
         Assert.Equal(1, q.Count);
         // A crash between an append and a rewrite can leave a line twice on disk: read once.
         File.AppendAllText(Path.Combine(dir, "events.jsonl"), e.ToDisk().ToJsonString() + "\n");
+        q.Flush();
         Assert.Equal(1, new EventQueue(dir).Count);
     }
 
@@ -71,6 +73,7 @@ public sealed class QueueTests : IDisposable
         q.Add(Level(s, 50, t.AddSeconds(10)));
         q.Acknowledge(batch);
         Assert.Equal(3, q.Count);
+        q.Flush();
         Assert.Equal(new[] { 43, 44, 50 }, new EventQueue(dir).Pending().Select(e => (int)e.Data["level"]!).ToArray());
         Assert.True(q.Session(s.Id)!.Known);
     }
@@ -111,7 +114,7 @@ public sealed class QueueTests : IDisposable
             big.Add(Events.Make(EventKind.Quest, Events.Quest(new QuestFinished((uint)(66000 + i), "Q", 1, true, i, 0, null, false, false, "x", journal, Array.Empty<string>())), t, s.Id, Key));
         var batch = big.NextBatch()!;
         Assert.True(batch.Events.Count < 60);
-        Assert.True(Json.Bytes(batch.ToSite()) <= EventQueue.MaxBatchBytes);
+        Assert.True(Json.JsonbBytes(batch.ToSite()) <= EventQueue.MaxBatchBytes);
     }
 
     [Fact]
@@ -149,6 +152,7 @@ public sealed class QueueTests : IDisposable
         q.Acknowledge(first);
         // A late event for it: the session goes again, without the words.
         q.Add(Level(s, 41, t.AddMinutes(5)));
+        q.Flush();
         var again = new EventQueue(dir).NextBatch()!;
         Assert.False(again.Session.ToSite().ContainsKey("title"));
         Assert.False(again.Session.ToSite().ContainsKey("note"));
@@ -191,6 +195,7 @@ public sealed class QueueTests : IDisposable
         Assert.Equal(1, q.AsideCount);
         var aside = File.ReadAllLines(Path.Combine(dir, "aside.jsonl"));
         Assert.Contains(e.Id.ToString("D"), aside[0]);
+        q.Flush();
         Assert.Equal(1, new EventQueue(dir).AsideCount);
     }
 
@@ -233,7 +238,128 @@ public sealed class QueueTests : IDisposable
         var q = new EventQueue(dir);
         Assert.Equal(1, q.Count);
         Assert.Contains("unreadable", File.ReadAllText(Path.Combine(dir, "aside.jsonl")));
+        // Said to whoever listens once the plugin's set up (not while the queue's being made).
+        Assert.Single(q.LoadProblems);
+        q.Flush();
         Assert.Equal(1, new EventQueue(dir).Count);
+        Assert.Empty(new EventQueue(dir).LoadProblems);
+    }
+
+    [Fact]
+    public void ALastLineACrashLeftWithoutItsEndIsntJoinedToTheNext()
+    {
+        Directory.CreateDirectory(dir);
+        var t = DateTime.UtcNow;
+        var s = Session(t);
+        var first = Level(s, 41, t);
+        // Written whole, but its line's end never was.
+        File.WriteAllText(Path.Combine(dir, "events.jsonl"), first.ToDisk().ToJsonString());
+        var q = new EventQueue(dir);
+        q.Add(Level(s, 42, t));
+        q.Flush();
+        var again = new EventQueue(dir);
+        Assert.Equal(new[] { 41, 42 }, again.Pending().Select(e => (int)e.Data["level"]!).ToArray());
+        Assert.Empty(again.LoadProblems);
+    }
+
+    [Fact]
+    public async Task EventsAddedWhileTheFileIsRewrittenAreKept()
+    {
+        var t = DateTime.UtcNow;
+        var s = Session(t);
+        var q = new EventQueue(dir);
+        q.PutSession(s);
+        for (var i = 0; i < 2000; i++) q.Add(Level(s, 1, t.AddSeconds(i)));
+        // The sync's worker takes batches while the framework thread adds.
+        var acks = Task.Run(() =>
+        {
+            for (var i = 0; i < 10; i++) q.Acknowledge(q.NextBatch()!);
+        });
+        var added = new List<Guid>();
+        for (var i = 0; i < 400; i++)
+        {
+            var e = Level(s, 2, t.AddHours(1).AddSeconds(i));
+            q.Add(e);
+            added.Add(e.Id);
+        }
+        await acks;
+        Assert.Equal(400, q.Count);
+        q.Flush();
+        var again = new EventQueue(dir).Pending().Select(e => e.Id).ToHashSet();
+        Assert.Equal(400, again.Count);
+        Assert.All(added, id => Assert.Contains(id, again));
+    }
+
+    [Fact]
+    public void WhatsRecordedForARefusedSessionGoesAsideNotStuck()
+    {
+        var t = DateTime.UtcNow;
+        var s = Session(t);
+        var q = new EventQueue(dir);
+        q.PutSession(s);
+        q.Add(Level(s, 41, t));
+        // Refused while another event was being recorded for it.
+        var refused = q.Session(s.Id)!;
+        refused.Refused = true;
+        q.PutSession(refused);
+        q.Add(Level(s, 42, t.AddSeconds(1)));
+        Assert.Null(q.NextBatch());
+        Assert.Equal(0, q.Count);
+        Assert.Equal(2, q.AsideCount);
+        q.Flush();
+        Assert.Equal(0, new EventQueue(dir).Count);
+        // Its photos too: kept aside, never waiting for a session the site won't have.
+        q.AddPhoto(new QueuedPhoto(Guid.NewGuid(), s.Id, Key, t, "", 64, 64), new byte[] { 1 });
+        Assert.Equal(0, q.PhotoCount);
+        Assert.Equal(3, q.AsideCount);
+    }
+
+    [Fact]
+    public void RefusingASessionSetsItsPhotosAside()
+    {
+        var t = DateTime.UtcNow;
+        var s = Session(t);
+        var q = new EventQueue(dir);
+        q.PutSession(s);
+        q.AddPhoto(new QueuedPhoto(Guid.NewGuid(), s.Id, Key, t, "", 64, 64), new byte[] { 1 });
+        Assert.Equal(1, q.RefuseSession(s.Id, "data"));
+        Assert.Equal(0, q.PhotoCount);
+        Assert.Equal(SessionStanding.Refused, q.Standing(s.Id));
+        Assert.Equal(SessionStanding.Missing, q.Standing(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void ANoteOrTheoryTheSiteWontHaveIsKeptAside()
+    {
+        var q = new EventQueue(dir);
+        q.KeepAside(new JsonObject { ["note"] = new JsonObject { ["body"] = "Ask about the Ixal." } }, "gone");
+        Assert.Equal(1, q.AsideCount);
+        Assert.Contains("Ask about the Ixal.", File.ReadAllText(Path.Combine(dir, "aside.jsonl")));
+    }
+
+    [Fact]
+    public void ASessionsEveningIsKeptWithIt()
+    {
+        var t = DateTime.UtcNow;
+        var s = Session(t);
+        s.Tally.PercentAtStart = 37;
+        s.Tally.Add(Events.Make(EventKind.Quest, Events.Quest(new QuestFinished(1, "Talk of the Highlands", 41, true, 5, 0, null, false, false, "x",
+            Array.Empty<string>(), Array.Empty<string>())), t, s.Id, Key));
+        s.Tally.Photos = 2;
+        var q = new EventQueue(dir);
+        q.PutSession(s);
+        // A reload: the events the site has are gone from here, the evening isn't.
+        q.Flush();
+        var back = new EventQueue(dir).Session(s.Id)!;
+        Assert.Equal(37, back.Tally.PercentAtStart);
+        Assert.Equal(1, back.Tally.Numbers.Msq);
+        Assert.Equal(2, back.Tally.Numbers.Photos);
+        Assert.Equal("Talk of the Highlands", back.Tally.Title);
+        Assert.False(back.ToSite().ContainsKey("tally"));
+        // A copy is its own.
+        var copy = back.Copy();
+        copy.Tally.Photos++;
+        Assert.Equal(2, back.Tally.Photos);
     }
 
     [Fact]
@@ -244,6 +370,7 @@ public sealed class QueueTests : IDisposable
         var q = new EventQueue(dir);
         var photo = new QueuedPhoto(Guid.NewGuid(), s.Id, Key, t, "At the Navel", 1920, 1080);
         q.AddPhoto(photo, new byte[] { 0xff, 0xd8, 0xff });
+        q.Flush();
         var again = new EventQueue(dir);
         Assert.Equal(1, again.PhotoCount);
         var next = again.NextPhoto()!;
@@ -251,6 +378,7 @@ public sealed class QueueTests : IDisposable
         Assert.Equal(3, again.PhotoBytes(next.Id)!.Length);
         Assert.Null(again.NextPhoto(p => p.Session != s.Id));
         again.PhotoDone(next.Id);
+        again.Flush();
         Assert.Equal(0, new EventQueue(dir).PhotoCount);
     }
 
@@ -275,6 +403,7 @@ public sealed class QueueTests : IDisposable
         var q = new EventQueue(dir);
         q.PutSession(ended);
         q.PutSession(open);
+        q.Flush();
         Assert.Equal(open.Id, new EventQueue(dir).OpenSession(Key)!.Id);
         Assert.Null(q.OpenSession("someoneelse12345"));
     }
@@ -282,6 +411,14 @@ public sealed class QueueTests : IDisposable
 
 public class SessionClockTests
 {
+    [Fact]
+    public void IdleMinutesAreKeptToWhatSettingsOffers()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(30), SessionClock.IdleFor(30));
+        Assert.Equal(TimeSpan.FromMinutes(SessionClock.LeastIdleMinutes), SessionClock.IdleFor(5));
+        Assert.Equal(TimeSpan.FromMinutes(SessionClock.MostIdleMinutes), SessionClock.IdleFor(240));
+    }
+
     private const string Key = "abcdefghijklmnop";
     private static readonly DateTime T = new(2026, 11, 8, 20, 0, 0, DateTimeKind.Utc);
 

@@ -98,6 +98,7 @@ public sealed class CodexStore : IDisposable
                 return;
             }
             var text = await response.Content.ReadAsStringAsync(wait.Token).ConfigureAwait(false);
+            wait.Token.ThrowIfCancellationRequested();
             var read = Codex.Read(text);
             if (read.Entries.Count == 0)
             {
@@ -106,6 +107,7 @@ public sealed class CodexStore : IDisposable
             }
             var tmp = file + ".tmp";
             await File.WriteAllTextAsync(tmp, text, wait.Token).ConfigureAwait(false);
+            if (stopping.IsCancellationRequested) return;
             File.Move(tmp, file, true);
             Swap(read);
             FetchedAt = now;
@@ -116,6 +118,11 @@ public sealed class CodexStore : IDisposable
         {
             Problem = stopping.IsCancellationRequested ? null : "The site didn't answer in time.";
         }
+        catch (Exception) when (stopping.IsCancellationRequested)
+        {
+            // Unloading: the shared connection is let go (just after this was stopped) while the fetch
+            // was under way. Nothing to say, nothing written.
+        }
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
         {
             Problem = "Couldn't reach the site for the Codex.";
@@ -123,6 +130,10 @@ public sealed class CodexStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Stops a fetch under way (before the shared connection is let go, which the journal does after): it
+    /// ends quietly, whatever the connection throws then, and nothing is written after.
+    /// </summary>
     public void Dispose()
     {
         stop.Cancel();

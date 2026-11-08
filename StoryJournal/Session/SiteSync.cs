@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using StoryJournal.Core;
 
@@ -26,8 +29,8 @@ public abstract record LinkState
     public bool IsLinked => this is Linked;
 }
 
-/// <summary>Who hello is for: the character's key, name and world, and the main story's reading when there is one.</summary>
-public sealed record HelloFor(string Key, string Name, string World, JsonObject? Progress);
+/// <summary>Who hello is for: the character's key, name and world, and the main story's reading (and its text, as sent) when there is one.</summary>
+public sealed record HelloFor(string Key, string Name, string World, JsonObject? Progress, string? ProgressText = null);
 
 /// <summary>
 /// The plugin and the site, kept in step in the background, through the site's functions for the plugin
@@ -39,17 +42,21 @@ public sealed record HelloFor(string Key, string Name, string World, JsonObject?
 /// and soon after something happens (a finished quest at once), with the main story's reading when it
 /// changed. The site's refusals are followed as <see cref="SyncPolicy"/> says.</item>
 /// <item><c>sj_plugin_note</c>, <c>sj_plugin_theory</c>, <c>sj_plugin_theory_answer</c>: what's
-/// written in the game, kept until the site has it.</item>
+/// written in the game, kept until the site has it, in the order <see cref="Outbox"/> says.</item>
 /// <item>Photos, one at a time, once the site has their session.</item>
 /// </list>
-/// Calls run off the framework thread (and so does the queue's disk work after them); their answers come
-/// back to it in <see cref="Tick"/>. Nothing goes before the plugin's linked. The token is never logged.
-/// Each kind of call is paced well under the site's hourly limits (hello 240, sync 600, note 240,
-/// theory 120, photo 120).
+/// Calls run off the framework thread (and so does the queue's disk work for them: the batch is made
+/// and weighed on the worker); their answers come back to it in <see cref="Tick"/>. Nothing goes before
+/// the plugin's linked. The token is never logged. Each kind of call is paced under the site's hourly
+/// limits (hello 240, sync 600, note 240, theory 120 with the answers, photo 120): at most 4 hellos,
+/// 360 syncs, 200 notes, 100 theories and answers and 100 photos an hour.
 /// </summary>
 public sealed class SiteSync : IDisposable
 {
     private static readonly TimeSpan HelloEvery = TimeSpan.FromMinutes(15);
+
+    /// <summary>How long something answered "gone" rests before it's tried again (unless its character is synced sooner).</summary>
+    private static readonly TimeSpan GoneRest = TimeSpan.FromMinutes(10);
 
     private readonly Configuration config;
     private readonly EventQueue queue;
@@ -58,8 +65,9 @@ public sealed class SiteSync : IDisposable
 
     private readonly Pace hello = new(TimeSpan.FromSeconds(20), HelloEvery);
     private readonly Pace sync = new(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30));
-    private readonly Pace notes = new(TimeSpan.FromSeconds(4));
-    private readonly Pace photos = new(TimeSpan.FromSeconds(8), backoffFirst: TimeSpan.FromSeconds(30), backoffMost: TimeSpan.FromMinutes(10));
+    private readonly Pace notes = new(TimeSpan.FromSeconds(4), perHour: 200);
+    private readonly Pace theories = new(TimeSpan.FromSeconds(4), perHour: 100);
+    private readonly Pace photos = new(TimeSpan.FromSeconds(8), backoffFirst: TimeSpan.FromSeconds(30), backoffMost: TimeSpan.FromMinutes(10), perHour: 100);
 
     /// <summary>Goes up with each link: an answer for an earlier one is let go.</summary>
     private int generation;
@@ -73,6 +81,21 @@ public sealed class SiteSync : IDisposable
 
     /// <summary>The main story's reading as the site last took it, by character.</summary>
     private readonly ConcurrentDictionary<string, string> progressSent = new();
+
+    /// <summary>A reading the site refused with the queue (<see cref="SyncStep.WithoutProgress"/>): not sent again until it changes.</summary>
+    private string? progressHeld;
+
+    /// <summary>When the site last took a hello or a sync for each character (since the plugin loaded).</summary>
+    private readonly Dictionary<string, DateTime> heard = new();
+
+    /// <summary>Notes and theories answered "gone": their character, and since when they rest.</summary>
+    private readonly Dictionary<Guid, (string Character, DateTime Since)> resting = new();
+
+    /// <summary>Photos answered "gone" (their session not on the site), and how many times.</summary>
+    private readonly ConcurrentDictionary<Guid, int> photoGone = new();
+
+    /// <summary>The kinds of call whose start failed, said once in the log each.</summary>
+    private readonly HashSet<string> startFailed = new();
 
     public SiteSync(Configuration config, EventQueue queue)
     {
@@ -113,6 +136,9 @@ public sealed class SiteSync : IDisposable
     /// <summary>Something was said that's worth a toast (framework thread).</summary>
     public event Action<string>? Said;
 
+    /// <summary>The site refused a session outright (framework thread): if it's the one under way, it ends.</summary>
+    public event Action<Guid>? SessionRefused;
+
     /// <summary>Who to say hello for, and the session to send the main story's reading with (framework thread).</summary>
     public Func<HelloFor?>? Character { get; set; }
 
@@ -125,11 +151,16 @@ public sealed class SiteSync : IDisposable
         hello.Reset();
         sync.Reset();
         notes.Reset();
+        theories.Reset();
         photos.Reset();
         offUntil = null;
         probing = null;
+        progressHeld = null;
         batchSize = EventQueue.MaxBatch;
         progressSent.Clear();
+        heard.Clear();
+        resting.Clear();
+        photoGone.Clear();
         Problem = null;
         Link = SiteLink.LooksRight(config.Token) ? new LinkState.Linking() : new LinkState.Unlinked();
         if (Link is LinkState.Linking)
@@ -152,7 +183,11 @@ public sealed class SiteSync : IDisposable
     public void Kick() => sync.Changed();
 
     /// <summary>Notes, theories or answers to send.</summary>
-    public void KickNotes() => notes.Changed();
+    public void KickNotes()
+    {
+        notes.Changed();
+        theories.Changed();
+    }
 
     private bool Sending => site.Linked && Link is not LinkState.Refused && !SwitchedOff;
 
@@ -173,20 +208,30 @@ public sealed class SiteSync : IDisposable
         if (!Sending || site.Closed) return;
 
         var who = Character?.Invoke();
-        if (who != null && hello.Due(now)) SayHello(who, now);
-        if (sync.Due(now)) Sync(now, who);
+        if (who != null) hello.Run(now, () => SayHello(who, now), ex => StartFailed("hello", ex));
+        sync.Run(now, () => Sync(now, who), ex => StartFailed("sync", ex));
         if (now - lookedAt >= TimeSpan.FromSeconds(1))
         {
             lookedAt = now;
-            if (config.PendingNotes.Count > 0 || config.PendingAnswers.Count > 0 || config.Characters.Values.Any(c => c.Theories.Any(t => !t.Sent)))
-                notes.Changed();
+            if (config.PendingNotes.Count > 0) notes.Changed();
+            if (config.PendingAnswers.Count > 0 || config.Characters.Values.Any(c => c.Theories.Any(t => !t.Sent && !t.Aside))) theories.Changed();
             if (queue.PhotoCount > 0) photos.Changed();
         }
-        if (notes.Due(now)) SendNotes(now);
-        if (photos.Due(now)) SendPhoto(now);
+        notes.Run(now, () => SendNotes(now), ex => StartFailed("note", ex));
+        theories.Run(now, () => SendTheories(now), ex => StartFailed("theory", ex));
+        photos.Run(now, () => SendPhoto(now), ex => StartFailed("photo", ex));
     }
 
     private DateTime lookedAt;
+
+    /// <summary>A call that couldn't even start, or be made (the queue's disk, say): it's tried again after a backoff; said once in the log (framework thread).</summary>
+    private void StartFailed(string what, Exception ex)
+    {
+        if (startFailed.Add(what)) Services.Log.Error(ex, $"Story Journal couldn't make a {what} call to the site; it's tried again later");
+    }
+
+    /// <summary>The site took a hello or a sync for this character just now.</summary>
+    private void Heard(string character) => heard[character] = DateTime.UtcNow;
 
     // ---------------------------------------------------------------------------------------------
     // Hello.
@@ -196,7 +241,7 @@ public sealed class SiteSync : IDisposable
         var gen = generation;
         var character = new JsonObject { ["key"] = who.Key, ["name"] = who.Name, ["world"] = who.World };
         if (who.Progress != null) character["progress"] = who.Progress.DeepClone();
-        var progressText = who.Progress?.ToJsonString(Json.Compact);
+        var progressText = who.ProgressText;
         site.Call("sj_plugin_hello", new JsonObject { ["p_character"] = character }).ContinueWith(t =>
         {
             var r = t.IsCompletedSuccessfully ? t.Result : new RpcResult(false, null, "Couldn't reach the site.", Unreachable: true);
@@ -210,6 +255,7 @@ public sealed class SiteSync : IDisposable
                     Hello = answer;
                     HelloAt = DateTime.UtcNow;
                     HelloCharacter = who.Key;
+                    Heard(who.Key);
                     if (progressText != null) progressSent[who.Key] = progressText;
                     var first = Link is not LinkState.Linked;
                     Link = new LinkState.Linked(answer.Account);
@@ -254,174 +300,287 @@ public sealed class SiteSync : IDisposable
     // ---------------------------------------------------------------------------------------------
     // The queue.
 
+    /// <summary>
+    /// One sync: on the framework thread only what's cheap is read (who, the reading's text, the session
+    /// under way); the batch is made and weighed on the worker, then sent.
+    /// </summary>
     private void Sync(DateTime now, HelloFor? who)
     {
         var gen = generation;
-        EventBatch? batch;
-        if (probing is { } probe)
+        var probe = probing;
+        var size = batchSize;
+        // The main story's reading goes when it changed since the site took it (and isn't one it refused).
+        string? progressText = null;
+        if (who?.ProgressText is { } text && who.Progress != null && text != progressHeld
+            && !(progressSent.TryGetValue(who.Key, out var last) && last == text))
+            progressText = text;
+        var open = progressText != null ? OpenSession?.Invoke()?.Copy() : null;
+        Task.Run(async () =>
         {
-            batch = queue.Session(probe.Session) is { } ps ? new EventBatch(ps.Character, ps, Array.Empty<JournalEvent>()) : null;
-            if (batch == null) probing = null;
-        }
-        else batch = queue.NextBatch(batchSize);
+            try
+            {
+                await SyncOnWorker(gen, probe, size, who, progressText, open).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // (The queue's disk, say.) Tried again after the backoff; said once.
+                answers.Enqueue(() =>
+                {
+                    StartFailed("sync", ex);
+                    if (gen == generation) sync.Done(false, DateTime.UtcNow);
+                });
+            }
+        });
+    }
+
+    private async Task SyncOnWorker(int gen, JournalEvent? probe, int size, HelloFor? who, string? progressText, SessionRecord? open)
+    {
+        EventBatch? batch;
+        if (probe != null)
+            batch = queue.Session(probe.Session) is { Refused: false } ps ? new EventBatch(ps.Character, ps, Array.Empty<JournalEvent>()) : null;
+        else batch = queue.NextBatch(size);
 
         // Nothing queued: the session under way goes alone when the main story's reading changed.
-        JsonObject? progress = null;
-        string? progressText = null;
-        if (who?.Progress != null)
-        {
-            progressText = who.Progress.ToJsonString(Json.Compact);
-            if (progressSent.TryGetValue(who.Key, out var last) && last == progressText) progressText = null;
-        }
-        if (batch == null && progressText != null && OpenSession?.Invoke() is { } open && open.Character == who!.Key)
+        if (batch == null && probe == null && progressText != null && open != null && open.Character == who!.Key && !open.Refused)
             batch = new EventBatch(open.Character, open, Array.Empty<JournalEvent>());
         if (batch == null)
         {
-            sync.Done(true, now);
+            answers.Enqueue(() =>
+            {
+                if (gen != generation) return;
+                if (probe != null) probing = null;
+                sync.Nothing();
+            });
             return;
         }
-        if (progressText != null && who != null && batch.Character == who.Key) progress = who.Progress;
-        else progressText = null;
+        // The reading read again from its text: the worker's own (the framework thread's is shared).
+        JsonObject? progress = null;
+        if (progressText != null && who != null && batch.Character == who.Key) progress = Json.Parse(progressText) as JsonObject;
+        if (progress == null) progressText = null;
 
         var args = new JsonObject
         {
             ["p_key"] = batch.Character,
             ["p_session"] = batch.Session.ToSite(),
             ["p_events"] = batch.ToSite(),
-            ["p_progress"] = progress?.DeepClone(),
+            ["p_progress"] = progress,
         };
-        var wasProbe = probing;
-        site.Call("sj_plugin_sync", args, TimeSpan.FromSeconds(30)).ContinueWith(t =>
+        var r = await site.Call("sj_plugin_sync", args, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        var step = SyncPolicy.Decide(r, batch.Events.Count, progress != null);
+        // The queue's disk work here, on the worker.
+        var photosAside = 0;
+        try
         {
-            var r = t.IsCompletedSuccessfully ? t.Result : new RpcResult(false, null, "Couldn't reach the site.", Unreachable: true);
-            var step = SyncPolicy.Decide(r, batch.Events.Count);
-            // The queue's disk work here, on the worker.
-            try
+            switch (step)
             {
-                switch (step)
-                {
-                    case SyncStep.Acknowledge:
-                        queue.Acknowledge(batch);
-                        if (wasProbe != null) queue.SetAside(new[] { wasProbe }, "data");
-                        break;
-                    case SyncStep.SetAside:
-                        queue.SetAside(batch.Events, r.Hint ?? "size");
-                        break;
-                    case SyncStep.RefuseSession:
-                        queue.RefuseSession(batch.Session.Id, r.Hint ?? "data");
-                        break;
-                }
+                case SyncStep.Acknowledge:
+                    queue.Acknowledge(batch);
+                    if (probe != null) queue.SetAside(new[] { probe }, "data");
+                    break;
+                case SyncStep.SetAside:
+                    queue.SetAside(batch.Events, r.Hint ?? "size");
+                    break;
+                case SyncStep.RefuseSession:
+                    photosAside = queue.RefuseSession(batch.Session.Id, r.Hint ?? "data");
+                    break;
             }
-            catch (Exception ex)
+        }
+        catch (Exception ex)
+        {
+            Services.Log.Error(ex, "Story Journal couldn't update its queue on this PC");
+        }
+        answers.Enqueue(() =>
+        {
+            if (gen != generation) return;
+            var at = DateTime.UtcNow;
+            switch (step)
             {
-                Services.Log.Error(ex, "Story Journal couldn't update its queue on this PC");
+                case SyncStep.Acknowledge:
+                    sync.Done(true, at);
+                    probing = null;
+                    batchSize = Math.Min(EventQueue.MaxBatch, batchSize * 2);
+                    SyncedAt = at;
+                    Heard(batch.Character);
+                    if (progressText != null) progressSent[batch.Character] = progressText;
+                    if (Problem != null)
+                    {
+                        Problem = null;
+                        Version++;
+                    }
+                    // More waiting: carry on at the pace's gap. Notes and theories that waited for this go too.
+                    if (queue.Count > 0) sync.Changed();
+                    KickNotes();
+                    break;
+                case SyncStep.WithoutProgress:
+                    Services.Log.Warning($"Story Journal: the site refused the main story's reading with the queue ({r.Hint}); the queue goes without it");
+                    progressHeld = progressText;
+                    sync.Done(true, at);
+                    sync.Changed();
+                    break;
+                case SyncStep.Split:
+                    batchSize = SyncPolicy.Half(batch.Events.Count);
+                    sync.Done(true, at);
+                    sync.Changed();
+                    break;
+                case SyncStep.SetAside:
+                    Services.Log.Warning($"Story Journal: the site refused an event ({r.Hint}); it's kept aside on this PC");
+                    batchSize = EventQueue.MaxBatch;
+                    sync.Done(true, at);
+                    sync.Changed();
+                    break;
+                case SyncStep.Probe:
+                    probing = batch.Events[0];
+                    sync.Done(true, at);
+                    sync.Changed();
+                    break;
+                case SyncStep.RefuseSession:
+                    Services.Log.Warning($"Story Journal: the site refused a session ({r.Why}); its events are kept aside on this PC");
+                    Said?.Invoke(r.Why ?? "The site refused a session.");
+                    if (photosAside > 0)
+                        Said?.Invoke(photosAside == 1
+                            ? "A photo from that session can't go to the site. It's kept on this PC (queue/aside-photos)."
+                            : $"{photosAside} photos from that session can't go to the site. They're kept on this PC (queue/aside-photos).");
+                    probing = null;
+                    batchSize = EventQueue.MaxBatch;
+                    sync.Done(true, at);
+                    sync.Changed();
+                    SessionRefused?.Invoke(batch.Session.Id);
+                    break;
+                case SyncStep.Relink:
+                case SyncStep.Off:
+                case SyncStep.Rate:
+                case SyncStep.Retry:
+                    Refused(r, sync);
+                    break;
             }
-            answers.Enqueue(() =>
-            {
-                if (gen != generation) return;
-                var at = DateTime.UtcNow;
-                switch (step)
-                {
-                    case SyncStep.Acknowledge:
-                        sync.Done(true, at);
-                        probing = null;
-                        batchSize = Math.Min(EventQueue.MaxBatch, batchSize * 2);
-                        SyncedAt = at;
-                        if (progressText != null) progressSent[batch.Character] = progressText;
-                        if (Problem != null)
-                        {
-                            Problem = null;
-                            Version++;
-                        }
-                        // More waiting: carry on at the pace's gap.
-                        if (queue.Count > 0) sync.Changed();
-                        break;
-                    case SyncStep.Split:
-                        batchSize = SyncPolicy.Half(batch.Events.Count);
-                        sync.Done(true, at);
-                        sync.Changed();
-                        break;
-                    case SyncStep.SetAside:
-                        Services.Log.Warning($"Story Journal: the site refused an event ({r.Hint}); it's kept aside on this PC");
-                        batchSize = EventQueue.MaxBatch;
-                        sync.Done(true, at);
-                        sync.Changed();
-                        break;
-                    case SyncStep.Probe:
-                        probing = batch.Events[0];
-                        sync.Done(true, at);
-                        sync.Changed();
-                        break;
-                    case SyncStep.RefuseSession:
-                        Services.Log.Warning($"Story Journal: the site refused a session ({r.Why}); its events are kept aside on this PC");
-                        Said?.Invoke(r.Why ?? "The site refused a session.");
-                        probing = null;
-                        batchSize = EventQueue.MaxBatch;
-                        sync.Done(true, at);
-                        sync.Changed();
-                        break;
-                    case SyncStep.Relink:
-                    case SyncStep.Off:
-                    case SyncStep.Rate:
-                    case SyncStep.Retry:
-                        Refused(r, sync);
-                        break;
-                }
-            });
-        }, TaskScheduler.Default);
+        });
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Notes, theories and answers: one call at a time, the oldest first.
+    // Notes, theories and answers: one call at a time each, the oldest first, in the order Outbox says.
+
+    /// <summary>Resting after a "gone": until its character's next sync, or a while.</summary>
+    private bool Resting(Guid id, DateTime now)
+    {
+        if (!resting.TryGetValue(id, out var r)) return false;
+        if (now - r.Since < GoneRest && !(heard.TryGetValue(r.Character, out var h) && h > r.Since)) return true;
+        resting.Remove(id);
+        return false;
+    }
 
     private void SendNotes(DateTime now)
     {
         var gen = generation;
-        if (config.PendingAnswers.FirstOrDefault() is { } answer)
+        var list = config.PendingNotes;
+        var states = list.Select(n => new NoteState(n.Session is { } s ? queue.Standing(s) : SessionStanding.Missing, Resting(n.Id, now))).ToList();
+        var choice = Outbox.NextNote(states, out var waitingForSync);
+        // A note waits for its session to reach the site: the queue goes first.
+        if (waitingForSync) sync.Changed();
+        if (choice is not { } c)
         {
-            Send("sj_plugin_theory_answer", new JsonObject { ["p_id"] = answer.Id.ToString("D"), ["p_status"] = answer.Status }, gen, ok =>
-            {
-                if (ok) config.PendingAnswers.Remove(answer);
-            });
+            notes.Nothing();
             return;
         }
-        if (config.PendingNotes.FirstOrDefault() is { } note)
-        {
-            var body = new JsonObject { ["id"] = note.Id.ToString("D"), ["body"] = note.Body };
-            if (note.Session is { } s && queue.Session(s) is { Known: true }) body["session"] = s.ToString("D");
-            if (note.Subject.Length > 0) body["subject"] = Json.Tidy(note.Subject, 60);
-            Send("sj_plugin_note", new JsonObject { ["p_key"] = note.Character, ["p_note"] = body }, gen, ok =>
+        var note = list[c.Index];
+        var body = new JsonObject { ["id"] = note.Id.ToString("D"), ["body"] = note.Body };
+        if (c.WithSession && note.Session is { } session) body["session"] = session.ToString("D");
+        if (note.Subject.Length > 0) body["subject"] = Json.Tidy(note.Subject, 60);
+        Send("sj_plugin_note", new JsonObject { ["p_key"] = note.Character, ["p_note"] = body }, gen, notes,
+            () => config.PendingNotes.Remove(note),
+            () =>
             {
-                if (ok) config.PendingNotes.Remove(note);
+                note.GoneTries++;
+                if (Outbox.Gone(note.GoneTries, heard.ContainsKey(note.Character)) == GoneStep.Wait)
+                {
+                    resting[note.Id] = (note.Character, DateTime.UtcNow);
+                    return;
+                }
+                config.PendingNotes.Remove(note);
+                KeepAside(new JsonObject { ["note"] = body.DeepClone(), ["character"] = note.Character });
+                Said?.Invoke("The site no longer has that note's character. The note is kept on this PC (queue/aside.jsonl).");
             });
-            return;
-        }
-        foreach (var (key, memory) in config.Characters)
+    }
+
+    private void SendTheories(DateTime now)
+    {
+        var gen = generation;
+        var mine = new Dictionary<Guid, (string Key, SealedTheory Theory)>();
+        var waiting = new List<(string Key, SealedTheory Theory)>();
+        foreach (var (character, memory) in config.Characters)
         {
-            if (memory.Theories.FirstOrDefault(t => !t.Sent) is not { } theory) continue;
-            var body = new JsonObject { ["id"] = theory.Id.ToString("D"), ["body"] = theory.Body };
-            if (theory.Subject.Length > 0) body["subject"] = Json.Tidy(theory.Subject, 60);
-            // The main-story index to ask at, as this PC worked it out (the site's own reading may be a
-            // sync behind, so the relative count alone could drift); the count too, for older sites.
-            if (theory.CheckAfter > 0)
+            foreach (var t in memory.Theories)
             {
-                body["checkAfter"] = theory.CheckAfter;
-                if (theory.DueIndex > 0) body["checkAt"] = theory.DueIndex;
+                mine[t.Id] = (character, t);
+                if (!t.Sent && !t.Aside) waiting.Add((character, t));
             }
-            Send("sj_plugin_theory", new JsonObject { ["p_key"] = key, ["p_theory"] = body }, gen, ok =>
-            {
-                if (ok) theory.Sent = true;
-            });
+        }
+        // An answer to a theory kept aside here can never reach the site: let go.
+        if (config.PendingAnswers.RemoveAll(a => mine.TryGetValue(a.Id, out var m) && m.Theory.Aside) > 0) config.Save();
+        var states = waiting.Select(w => new TheoryState(w.Theory.Sent, !w.Theory.AwaitingIndex, Resting(w.Theory.Id, now))).ToList();
+        var answerFor = config.PendingAnswers
+            .Select(a => mine.TryGetValue(a.Id, out var m) ? (m.Theory.Sent ? AnswerFor.Sent : AnswerFor.Unsent) : AnswerFor.Site)
+            .ToList();
+        if (Outbox.NextTheoryCall(states, answerFor) is not { } c)
+        {
+            theories.Nothing();
             return;
         }
-        notes.Done(true, now);
+        if (c.Answer)
+        {
+            var answer = config.PendingAnswers[c.Index];
+            // Gone: the theory isn't on the site (deleted there): the answer is let go.
+            Send("sj_plugin_theory_answer", new JsonObject { ["p_id"] = answer.Id.ToString("D"), ["p_status"] = answer.Status }, gen, theories,
+                () => config.PendingAnswers.Remove(answer),
+                () => config.PendingAnswers.Remove(answer));
+            return;
+        }
+        var (key, theory) = waiting[c.Index];
+        var body = new JsonObject { ["id"] = theory.Id.ToString("D"), ["body"] = theory.Body };
+        if (theory.Subject.Length > 0) body["subject"] = Json.Tidy(theory.Subject, 60);
+        // The main-story index to ask at, as this PC worked it out (the site's own reading may be a
+        // sync behind, so the relative count alone could drift); the count too, for older sites.
+        if (theory.CheckAfter > 0)
+        {
+            body["checkAfter"] = theory.CheckAfter;
+            if (theory.DueIndex > 0) body["checkAt"] = theory.DueIndex;
+        }
+        Send("sj_plugin_theory", new JsonObject { ["p_key"] = key, ["p_theory"] = body }, gen, theories,
+            () => theory.Sent = true,
+            () =>
+            {
+                theory.GoneTries++;
+                if (Outbox.Gone(theory.GoneTries, heard.ContainsKey(key)) == GoneStep.Wait)
+                {
+                    resting[theory.Id] = (key, DateTime.UtcNow);
+                    return;
+                }
+                theory.Aside = true;
+                KeepAside(new JsonObject { ["theory"] = body.DeepClone(), ["character"] = key });
+                Said?.Invoke("The site no longer has that theory's character. It's kept on this PC, and still asked about here.");
+            });
+    }
+
+    private void KeepAside(JsonObject what)
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                queue.KeepAside(what, "gone");
+            }
+            catch (Exception ex)
+            {
+                Services.Log.Error(ex, "Story Journal couldn't keep a note or theory aside on this PC");
+            }
+        });
     }
 
     /// <summary>
-    /// One of the notes' calls: done (or refused for good as bad data: then it's let go, said once) leaves the
-    /// list; anything else waits (<c>gone</c>: the site doesn't know the character until its first sync).
+    /// One of the notes' or theories' calls: done (or refused for good as bad data: then it's let go, said
+    /// once) leaves the list; "gone" is the caller's (<paramref name="gone"/>: rest, or set aside), and
+    /// what comes after goes on; anything else waits for the pace's backoff.
     /// </summary>
-    private void Send(string function, JsonObject args, int gen, Action<bool> done)
+    private void Send(string function, JsonObject args, int gen, Pace pace, Action ok, Action gone)
     {
         site.Call(function, args).ContinueWith(t =>
         {
@@ -437,25 +596,24 @@ public sealed class SiteSync : IDisposable
                         Services.Log.Warning($"Story Journal: the site refused a note or theory: {r.Why}");
                         Said?.Invoke(r.Why ?? "The site refused that.");
                     }
-                    done(true);
+                    ok();
                     config.Save();
-                    notes.Done(true, at);
-                    notes.Changed();
+                    pace.Done(true, at);
+                    pace.Changed();
                     return;
                 }
                 if (r.Hint == "gone")
                 {
-                    // The character or the theory isn't there yet (or any more): after the next sync.
-                    if (function == "sj_plugin_theory_answer")
-                    {
-                        done(true);
-                        config.Save();
-                    }
-                    notes.Done(false, at);
+                    // Not there (yet, or any more): it rests or is set aside, and the rest go on; the
+                    // next sync tells the site about the character.
+                    gone();
+                    config.Save();
+                    pace.Done(true, at);
+                    pace.Changed();
                     sync.Changed();
                     return;
                 }
-                Refused(r, notes);
+                Refused(r, pace);
             });
         }, TaskScheduler.Default);
     }
@@ -466,11 +624,11 @@ public sealed class SiteSync : IDisposable
     private void SendPhoto(DateTime now)
     {
         var gen = generation;
-        var photo = queue.NextPhoto(p => queue.Session(p.Session) is { Known: true });
+        var photo = queue.NextPhoto(p => queue.Standing(p.Session) == SessionStanding.Known);
         if (photo == null)
         {
             // Their sessions haven't reached the site yet: the queue first.
-            photos.Done(true, now);
+            photos.Nothing();
             sync.Changed();
             return;
         }
@@ -479,45 +637,74 @@ public sealed class SiteSync : IDisposable
         var cancel = site.Closing;
         Task.Run(async () =>
         {
-            var bytes = queue.PhotoBytes(photo.Id);
-            var r = bytes == null
-                ? new PhotoResult(PhotoOutcome.Refused, "The photo's file is gone from this PC.", "image")
-                : await PhotoUpload.SendAsync(http, token, photo.Character, photo, bytes, cancel).ConfigureAwait(false);
             try
             {
-                if (r.Outcome == PhotoOutcome.Kept) queue.PhotoDone(photo.Id);
-                else if (r.Outcome == PhotoOutcome.Refused) queue.PhotoDone(photo.Id, r.Hint ?? "image");
+                await SendPhotoOnWorker(gen, photo, token, http, cancel).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Services.Log.Error(ex, "Story Journal couldn't update its photos on this PC");
-            }
-            answers.Enqueue(() =>
-            {
-                if (gen != generation) return;
-                var at = DateTime.UtcNow;
-                switch (r.Outcome)
+                answers.Enqueue(() =>
                 {
-                    case PhotoOutcome.Kept:
-                        photos.Done(true, at);
-                        Said?.Invoke("Photo added to the journal");
-                        break;
-                    case PhotoOutcome.Refused:
-                        photos.Done(true, at);
-                        Services.Log.Warning($"Story Journal: the site refused a photo: {r.Why}");
-                        Said?.Invoke(r.Why ?? "The site refused a photo.");
-                        break;
-                    case PhotoOutcome.Rate:
-                        photos.RateLimited(at, TimeSpan.FromMinutes(15));
-                        break;
-                    case PhotoOutcome.Token:
-                        Refused(new RpcResult(false, null, r.Why, "token", true), photos);
-                        break;
-                    default:
-                        photos.Done(false, at);
-                        break;
-                }
-            });
+                    StartFailed("photo", ex);
+                    if (gen == generation) photos.Done(false, DateTime.UtcNow);
+                });
+            }
+        });
+    }
+
+    private async Task SendPhotoOnWorker(int gen, QueuedPhoto photo, string token, HttpClient http, CancellationToken cancel)
+    {
+        var bytes = queue.PhotoBytes(photo.Id);
+        var r = bytes == null
+            ? new PhotoResult(PhotoOutcome.Refused, "The photo's file is gone from this PC.", "image")
+            : await PhotoUpload.SendAsync(http, token, photo.Character, photo, bytes, cancel).ConfigureAwait(false);
+        // Gone again and again though its session reached the site: the site lost the session (or the
+        // character); kept aside after a few tries rather than waiting for ever.
+        var givenUp = false;
+        if (r.Outcome == PhotoOutcome.Later && r.Hint == "gone")
+            givenUp = Outbox.PhotoGone(photoGone.AddOrUpdate(photo.Id, 1, (_, n) => n + 1)) == GoneStep.SetAside;
+        try
+        {
+            if (r.Outcome == PhotoOutcome.Kept) queue.PhotoDone(photo.Id);
+            else if (r.Outcome == PhotoOutcome.Refused) queue.PhotoDone(photo.Id, r.Hint ?? "image");
+            else if (givenUp) queue.PhotoDone(photo.Id, "gone");
+        }
+        catch (Exception ex)
+        {
+            Services.Log.Error(ex, "Story Journal couldn't update its photos on this PC");
+        }
+        answers.Enqueue(() =>
+        {
+            if (gen != generation) return;
+            var at = DateTime.UtcNow;
+            if (givenUp)
+            {
+                photos.Done(true, at);
+                Services.Log.Warning("Story Journal: the site never found a photo's session; the photo is kept aside on this PC");
+                Said?.Invoke("The site can't find that photo's session. The photo is kept on this PC (queue/aside-photos).");
+                return;
+            }
+            switch (r.Outcome)
+            {
+                case PhotoOutcome.Kept:
+                    photos.Done(true, at);
+                    Said?.Invoke("Photo added to the journal");
+                    break;
+                case PhotoOutcome.Refused:
+                    photos.Done(true, at);
+                    Services.Log.Warning($"Story Journal: the site refused a photo: {r.Why}");
+                    Said?.Invoke(r.Why ?? "The site refused a photo.");
+                    break;
+                case PhotoOutcome.Rate:
+                    photos.RateLimited(at, TimeSpan.FromMinutes(15));
+                    break;
+                case PhotoOutcome.Token:
+                    Refused(new RpcResult(false, null, r.Why, "token", true), photos);
+                    break;
+                default:
+                    photos.Done(false, at);
+                    break;
+            }
         });
     }
 

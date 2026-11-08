@@ -13,7 +13,10 @@ namespace StoryJournal.Session;
 /// written down as events through <see cref="Journal.Record"/>:
 /// <list type="bullet">
 /// <item>quests taken (a new id in QuestManager's list) and finished (an id gone from it that the game
-/// says is complete; one gone and not complete was abandoned, and isn't written);</item>
+/// says is complete; one gone and not complete was abandoned, and isn't written); a main-story quest
+/// taken and finished between two looks never shows in the list, so the main story's quests done (read
+/// now and then) are a backstop: one newly done is written if the list didn't see it (each once,
+/// <see cref="Finishes"/>);</item>
 /// <item>cutscenes, with how long they lasted (the cutscene conditions, from rise to fall);</item>
 /// <item>zones (a new territory once the loading screen's gone), <c>first</c> when the character's never
 /// been there since the journal began;</item>
@@ -45,6 +48,11 @@ public sealed class Recorder
     /// <summary>Quests gone from the log, not yet seen complete: the game may mark them a moment after.</summary>
     private readonly Dictionary<uint, DateTime> vanished = new();
 
+    /// <summary>Finishes written (each once, however it was noticed), and the main story's quests done as last seen.</summary>
+    private readonly Finishes finishes = new();
+
+    private int doneVersion = -1;
+
     public Recorder(Journal journal)
     {
         this.journal = journal;
@@ -60,6 +68,8 @@ public sealed class Recorder
     {
         baseline = false;
         vanished.Clear();
+        finishes.Reset();
+        doneVersion = -1;
         cutsceneSince = null;
         duty = null;
         lastPosition = null;
@@ -82,6 +92,7 @@ public sealed class Recorder
         Moved(now);
         Zone(now, player);
         QuestLog(now);
+        DoneBackstop(now);
         Cutscene(now, player);
         DutyLeft(now);
         Levels(now, player);
@@ -96,6 +107,9 @@ public sealed class Recorder
         cutsceneSince = InGame.InCutscene ? DateTime.UtcNow : null;
         lastPosition = InGame.Position;
         baseline = true;
+        finishes.Reset();
+        // The next reading of the quests done (asked for here) is the baseline for the backstop.
+        doneVersion = -1;
         journal.Story.DoneChanged();
     }
 
@@ -161,8 +175,7 @@ public sealed class Recorder
             if (Quests.IsComplete(id))
             {
                 vanished.Remove(id);
-                var msq = catalog?.Contains(id) == true;
-                if (Writing && (msq || Config.RecordSideContent)) journal.QuestFinished(id, now);
+                Finished(id, now);
                 journal.Story.DoneChanged();
             }
             // Not complete after a while: abandoned, and not written.
@@ -171,6 +184,38 @@ public sealed class Recorder
         if (!changed && nowAccepted.All(kv => accepted.TryGetValue(kv.Key, out var s) && s == kv.Value)) return;
         accepted = nowAccepted;
         if (changed) journal.Story.DoneChanged();
+    }
+
+    /// <summary>
+    /// A quest finished, however it was noticed: written once (the journal waits for the main story's
+    /// catalog when it isn't read yet, to know whether it's one of the main story's).
+    /// </summary>
+    private void Finished(uint id, DateTime now)
+    {
+        if (!finishes.Claim(id)) return;
+        var catalog = journal.Story.Catalog;
+        var msq = catalog?.Contains(id) == true;
+        if (Writing && (msq || Config.RecordSideContent || (catalog == null && !journal.Story.Broken))) journal.QuestFinished(id, now);
+    }
+
+    /// <summary>
+    /// The backstop: main-story quests newly done since the last reading of them (the first after login is
+    /// the baseline), written if the log didn't see them finish.
+    /// </summary>
+    private void DoneBackstop(DateTime now)
+    {
+        var story = journal.Story;
+        if (story.Catalog == null || story.DoneVersion == doneVersion) return;
+        var first = doneVersion < 0;
+        doneVersion = story.DoneVersion;
+        var newly = finishes.NewlyDone(story.Done);
+        if (first) return;
+        foreach (var id in newly)
+        {
+            // Still in the log's leaving list: the log's own check writes it.
+            if (vanished.ContainsKey(id)) continue;
+            Finished(id, now);
+        }
     }
 
     private void Cutscene(DateTime now, PlayerNow player)

@@ -21,7 +21,8 @@ public sealed partial class MainWindow
             return;
         }
         var events = journal.SessionEvents.Where(e => e.Session == session.Id).OrderByDescending(e => e.At).ToList();
-        var numbers = Sessions.Count(events, journal.SessionPhotos);
+        // Counted as it happened, kept with the session (a reload leaves only the events still queued here).
+        var numbers = session.Tally.Numbers;
         Kit.Facts("##ses-facts", new Kit.Fact[]
         {
             new("Playing", Ui.Duration(DateTime.UtcNow - session.StartedAt), $"since {Ui.Clock(session.StartedAt)}"),

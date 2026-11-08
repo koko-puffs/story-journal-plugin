@@ -105,14 +105,14 @@ public static class Places
         }
     }
 
-    /// <summary>A duty's name (as a title: "The Navel"), its type in a word ("trial") and its level.</summary>
+    /// <summary>A duty's name (as a title: "The Navel"), its type in a word in English whatever the client's language ("trial") and its level.</summary>
     public static (string Name, string Type, int Level) Duty(uint cfc)
     {
         try
         {
             if (cfc == 0 || Services.Data.GetExcelSheet<ContentFinderCondition>().GetRowOrDefault(cfc) is not { } c) return (string.Empty, "duty", 0);
-            var type = c.ContentType.IsValid ? c.ContentType.Value.Name.ExtractText() : string.Empty;
-            return (Sessions.Capitalised(c.Name.ExtractText()), Events.DutyType(type), c.ClassJobLevelRequired);
+            // The type by its row, not its name: the name is in the client's language, the site reads English.
+            return (Sessions.Capitalised(c.Name.ExtractText()), Events.DutyType(c.ContentType.RowId), c.ClassJobLevelRequired);
         }
         catch (Exception ex)
         {

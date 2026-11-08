@@ -178,6 +178,19 @@ public sealed class MsqCatalog
     }
 
     /// <summary>
+    /// A main-story quest's finishing as its event tells it (its index, chapter, whether it closed its
+    /// chapter or expansion on <paramref name="path"/>), from the catalog alone: the story needn't have
+    /// been read yet (just after login). Null when it isn't one of the main story's.
+    /// </summary>
+    public QuestFinished? Finished(uint quest, MsqPath path, IReadOnlyList<string> journal, IReadOnlyList<string> people)
+    {
+        if (Quest(quest) is not { } msq) return null;
+        var chapter = msq.Chapter != 0 ? Chapter(msq.Chapter)?.Name : null;
+        return new QuestFinished(msq.Id, msq.Name, msq.Level, true, IndexOf(msq.Id), msq.Expansion, chapter,
+            path.ChapterDone(msq), path.ExpansionDone(msq), msq.Place, journal, people);
+    }
+
+    /// <summary>
     /// The player's road through the story: <paramref name="done"/> the quests finished,
     /// <paramref name="started"/> those taken and not finished. Left off it: a quest not done that has
     /// a done quest after it on its chain (a branch the player went past without: another starting
@@ -401,3 +414,45 @@ public sealed record Ahead(int QuestsAway, int Level, string Duty, string Type);
 
 /// <summary>A good place to stop: after <see cref="QuestsAway"/> quests; <see cref="Reason"/> "duty" or "chapter".</summary>
 public sealed record NextStop(int QuestsAway, string Reason);
+
+/// <summary>
+/// Quests finished, noticed two ways and written once: from the quest log (a quest gone from it that the
+/// game says is done) and, as a backstop, from the main story's quests done, read now and then (a quest
+/// taken and finished between two looks at the log is never seen in it). The first reading after login
+/// is the baseline: what's done then isn't new. Pure.
+/// </summary>
+public sealed class Finishes
+{
+    private HashSet<uint>? before;
+    private readonly HashSet<uint> claimed = new();
+
+    /// <summary>A new login: the next reading is the baseline again.</summary>
+    public void Reset()
+    {
+        before = null;
+        claimed.Clear();
+    }
+
+    /// <summary>
+    /// More newly done at once than anyone finishes between two readings (they're read when the log changes,
+    /// and once a minute): the last reading was the game not ready yet, not quests finished. A new baseline.
+    /// </summary>
+    public const int MostAtOnce = 3;
+
+    /// <summary>The quests done in this reading that weren't in the last (none for the baseline, nor past <see cref="MostAtOnce"/>).</summary>
+    public List<uint> NewlyDone(IReadOnlySet<uint> done)
+    {
+        var now = done.Select(QuestIds.Row).ToHashSet();
+        if (before == null)
+        {
+            before = now;
+            return new List<uint>();
+        }
+        var list = now.Where(q => !before.Contains(q)).OrderBy(q => q).ToList();
+        before = now;
+        return list.Count > MostAtOnce ? new List<uint>() : list;
+    }
+
+    /// <summary>Claims a quest's finish to write it: false when it's been claimed already (the other way saw it first).</summary>
+    public bool Claim(uint quest) => claimed.Add(QuestIds.Row(quest));
+}

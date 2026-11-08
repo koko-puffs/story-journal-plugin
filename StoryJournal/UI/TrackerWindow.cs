@@ -16,7 +16,8 @@ namespace StoryJournal.UI;
 public sealed class TrackerWindow : CardWindow
 {
     private readonly Memo<(int Done, int Total, int Ex)> head = new();
-    private readonly Memo<(int Away, int Spoil, int Count)> next = new();
+    /// <summary>The next duty's line, made again when the duty, how far it is or the spoiler setting changes.</summary>
+    private readonly Memo<(int Away, int Spoil, string Duty)> next = new();
 
     public TrackerWindow(Journal journal)
         : base("Story Journal · Tracker###SjTracker", journal, false)
@@ -57,9 +58,9 @@ public sealed class TrackerWindow : CardWindow
         else
         {
             var a = ahead[0];
-            line = next.Get((a.QuestsAway, (int)journal.Prefs.Spoilers, ahead.Count), _ => journal.Prefs.Spoilers == Spoilers.Strict
-                ? (a.QuestsAway <= 1 ? "A duty after this quest" : $"{a.QuestsAway} quests to the next duty")
-                : (a.QuestsAway <= 1 ? $"{a.Duty} after this quest" : $"{a.Duty} in {a.QuestsAway} quests"));
+            line = next.Get((a.QuestsAway, (int)journal.Prefs.Spoilers, a.Duty), v => v.Spoil == (int)Spoilers.Strict
+                ? (v.Away <= 1 ? "A duty after this quest" : $"{v.Away} quests to the next duty")
+                : (v.Away <= 1 ? $"{v.Duty} after this quest" : $"{v.Duty} in {v.Away} quests"));
         }
         Lines.Para(line, Palette.Muted, 12, 17);
 

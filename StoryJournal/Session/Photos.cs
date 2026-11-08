@@ -56,7 +56,23 @@ public sealed class Photos : IDisposable
     private DateTime grabAt;
     private Task? making;
     private DateTime makingAt;
+    private Making? makingNow;
     private int generation;
+
+    /// <summary>
+    /// A picture being made: given up on (after <see cref="MakeGiveUp"/>) or kept, never both, so a
+    /// picture you were told to take again isn't kept as well.
+    /// </summary>
+    private sealed class Making
+    {
+        public const int Working = 0, Keeping = 1, GivenUp = 2;
+
+        public int State;
+
+        public readonly CancellationTokenSource Cancel;
+
+        public Making(CancellationToken stopping) => Cancel = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+    }
 
     public Photos(EventQueue queue)
     {
@@ -141,11 +157,17 @@ public sealed class Photos : IDisposable
             Fail("The game's picture never came. Try again.");
             return;
         }
-        if (making is { IsCompleted: false } && Capturing && DateTime.UtcNow - makingAt > MakeGiveUp)
+        if (making is { IsCompleted: false } && Capturing && DateTime.UtcNow - makingAt > MakeGiveUp && makingNow is { } slow)
         {
-            making = null;
-            generation++;
-            Fail("Making the picture took too long. Try again.");
+            // Given up only if it isn't being kept this very moment (then it finishes, and says so itself).
+            if (Interlocked.CompareExchange(ref slow.State, Making.GivenUp, Making.Working) == Making.Working)
+            {
+                slow.Cancel.Cancel();
+                making = null;
+                makingNow = null;
+                generation++;
+                Fail("Making the picture took too long. Try again.");
+            }
             return;
         }
         if (grab is not { IsCompleted: true } t || grabFor is not { } ask) return;
@@ -160,10 +182,14 @@ public sealed class Photos : IDisposable
         }
         var wrap = Own(t.Result);
         var gen = generation;
+        var job = makingNow = new Making(stopping);
         makingAt = DateTime.UtcNow;
         making = Task.Run(async () =>
         {
-            var (jpeg, width, height, why) = await Make(wrap, stopping).ConfigureAwait(false);
+            var (jpeg, width, height, why) = await Make(wrap, job.Cancel.Token).ConfigureAwait(false);
+            // Given up meanwhile (you were told to take it again): not kept.
+            if (Interlocked.CompareExchange(ref job.State, Making.Keeping, Making.Working) != Making.Working) return;
+            job.Cancel.Dispose();
             QueuedPhoto? kept = null;
             if (jpeg != null && why == null && !stopping.IsCancellationRequested)
             {
@@ -182,6 +208,7 @@ public sealed class Photos : IDisposable
             _ = Services.Framework.RunOnFrameworkThread(() =>
             {
                 if (gen != generation || disposed) return;
+                if (makingNow == job) makingNow = null;
                 Capturing = false;
                 if (kept != null) Taken?.Invoke(kept);
                 else Fail(why ?? "Couldn't make the picture.");

@@ -88,7 +88,9 @@ public static class PhotoUpload
             "off" or "gone" or "upload" or "server" => new PhotoResult(PhotoOutcome.Later, words ?? "The site can't take photos right now.", hint),
             "image" or "data" or "form" => new PhotoResult(PhotoOutcome.Refused, words ?? "The site won't take that photo.", hint),
             _ when code == 429 => new PhotoResult(PhotoOutcome.Rate, "The site is busy. Photos wait a while.", hint),
-            _ when code is 401 => new PhotoResult(PhotoOutcome.Token, "The site doesn't know this token. Link again in Settings with a new one.", hint),
+            // Turned away without the site saying it's the token (a gateway, a key the site changed): kept
+            // and tried again later. Only the function's own "token" unlinks.
+            _ when code is 401 or 403 => new PhotoResult(PhotoOutcome.Later, "The site turned the photo away for now. It's kept and tried again.", hint),
             _ when code is 413 => new PhotoResult(PhotoOutcome.Refused, "That photo is too big for the site.", hint),
             _ => new PhotoResult(PhotoOutcome.Later, code >= 500 ? $"The site had a problem ({code})." : $"The site said no ({code}).", hint),
         };

@@ -24,7 +24,7 @@ public sealed record CurrentQuest(
 /// The plugin's reading of the main story (<c>sj_characters.progress</c>), in exactly the shape the
 /// site reads (the brief's <c>Progress</c>): the job and level, how far through the main story, each
 /// expansion and chapter, the current quest with its journal so far, the duties ahead and a good place
-/// to stop. Kept under the site's 32 KB.
+/// to stop. Kept under the site's 32 KB (as it measures it).
 /// </summary>
 public sealed record Progress(
     int Level,
@@ -39,7 +39,10 @@ public sealed record Progress(
     IReadOnlyList<Ahead> Ahead,
     NextStop? NextStop)
 {
-    /// <summary>The most the site keeps (32,768 bytes); a reading is made to fit well under it.</summary>
+    /// <summary>
+    /// The most a reading may be as the site measures it (<see cref="Json.JsonbBytes"/>, jsonb's text: the
+    /// site keeps 32,768 bytes); a reading is made to fit under this, which leaves room.
+    /// </summary>
     public const int MaxBytes = 30_000;
 
     /// <summary>The expansion the player's in now (the current quest's, else the last with anything done).</summary>
@@ -90,27 +93,27 @@ public sealed record Progress(
     }
 
     /// <summary>
-    /// The reading as sent, made to fit <see cref="MaxBytes"/>: the current quest's earliest journal
-    /// entries go first (the latest say where you are), then the chapters' names not reached (already
-    /// null), then the chapters of expansions not reached, then the chapters altogether.
+    /// The reading as sent, made to fit <see cref="MaxBytes"/> as the site measures it: first the chapters
+    /// of expansions not reached go (their names are null already), then the chapters altogether, then the
+    /// current quest's earliest journal entries (the latest say where you are).
     /// </summary>
     public JsonObject ToSite()
     {
         var p = this;
         var json = p.ToJson();
-        while (Json.Bytes(json) > MaxBytes && p.Current is { Journal.Count: > 1 } q)
-        {
-            p = p with { Current = q with { Journal = q.Journal.Skip(1).ToList() } };
-            json = p.ToJson();
-        }
-        if (Json.Bytes(json) > MaxBytes && p.ExpansionNow is { } now)
+        if (Json.JsonbBytes(json) > MaxBytes && p.ExpansionNow is { } now)
         {
             p = p with { Chapters = p.Chapters.Where(c => c.Expansion <= now.Id).ToList() };
             json = p.ToJson();
         }
-        if (Json.Bytes(json) > MaxBytes)
+        if (Json.JsonbBytes(json) > MaxBytes)
         {
             p = p with { Chapters = Array.Empty<ChapterCount>() };
+            json = p.ToJson();
+        }
+        while (Json.JsonbBytes(json) > MaxBytes && p.Current is { Journal.Count: > 1 } q)
+        {
+            p = p with { Current = q with { Journal = q.Journal.Skip(1).ToList() } };
             json = p.ToJson();
         }
         return json;

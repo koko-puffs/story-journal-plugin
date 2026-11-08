@@ -226,4 +226,48 @@ public class MsqTests
         var json = p.ToSite();
         Assert.Equal(B, (uint)json["current"]!["id"]!);
     }
+
+    [Fact]
+    public void AFinishIsToldFromTheCatalogBeforeTheStoryIsRead()
+    {
+        // Just after login (no reading yet): the catalog and the quests done read then are enough to tell
+        // a main-story quest as one, with its index and whether it closed its chapter.
+        var story = Story();
+        var done = Set(G1, G2, Meet, A, B, Gca, C);
+        var path = story.Path(done, Set(D));
+        var q = story.Finished(D, path, new[] { "Titan fell." }, Array.Empty<string>())!;
+        Assert.True(q.Msq);
+        Assert.Equal(story.IndexOf(D), q.MsqIndex);
+        Assert.Equal("The Mountain Falls", q.Chapter);
+        Assert.True(q.ChapterDone);
+        Assert.True(q.ExpansionDone);
+        Assert.Null(story.Finished(12345, path, Array.Empty<string>(), Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void AFinishIsWrittenOnceHoweverItsNoticed()
+    {
+        var f = new Finishes();
+        // The first reading after login is the baseline: nothing in it is new.
+        Assert.Empty(f.NewlyDone(Set(G1, G2)));
+        // Taken and finished between two looks at the log: the next reading has it.
+        Assert.Equal(new[] { Meet }, f.NewlyDone(Set(G1, G2, Meet)));
+        Assert.True(f.Claim(Meet));
+        // The log saw it too (or saw it first): written once.
+        Assert.False(f.Claim(QuestIds.Short(Meet)));
+        Assert.Empty(f.NewlyDone(Set(G1, G2, Meet)));
+        f.Reset();
+        Assert.Empty(f.NewlyDone(Set(G1, G2, Meet, A)));
+        Assert.True(f.Claim(Meet));
+    }
+
+    [Fact]
+    public void ABaselineReadBeforeTheGameWasReadyIsntAFloodOfFinishes()
+    {
+        var f = new Finishes();
+        // Read as nothing done (the game not ready yet), then as it is: not a dozen quests just finished.
+        Assert.Empty(f.NewlyDone(Set()));
+        Assert.Empty(f.NewlyDone(Set(G1, G2, Meet, A, B, Gca, C)));
+        Assert.Equal(new[] { D }, f.NewlyDone(Set(G1, G2, Meet, A, B, Gca, C, D)));
+    }
 }

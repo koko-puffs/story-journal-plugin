@@ -143,9 +143,11 @@ public static class Welcome
     /// <summary>
     /// Three lines of story at a glance: the last journal lines of the last main-story quests finished
     /// (oldest of the three first), and, when the sessions finished none, what they did instead (a duty
-    /// cleared, a place reached, someone met).
+    /// cleared, a place reached, someone met). A place is "for the first time" only in a session after
+    /// the first one this journal kept for the character (<paramref name="journalSince"/>, when it
+    /// began): <c>first</c> means first since the journal began, so in its first session every place is.
     /// </summary>
-    public static List<string> Glance(IReadOnlyList<RecentSession> recent, int max = 3)
+    public static List<string> Glance(IReadOnlyList<RecentSession> recent, int max = 3, DateTime? journalSince = null)
     {
         var lines = new List<string>();
         foreach (var s in recent.OrderBy(s => s.StartedAt))
@@ -156,7 +158,8 @@ public static class Welcome
         foreach (var s in recent.OrderBy(s => s.StartedAt))
         {
             foreach (var d in s.Duties.Where(d => d.Length > 0)) extra.Add($"You cleared {d}.");
-            foreach (var p in s.Places.Where(p => p.Length > 0)) extra.Add($"You reached {p} for the first time.");
+            var firstTime = journalSince is { } since && s.StartedAt > since;
+            foreach (var p in s.Places.Where(p => p.Length > 0)) extra.Add(firstTime ? $"You reached {p} for the first time." : $"You reached {p}.");
             if (s.People.Count > 0) extra.Add($"You met {Join(s.People.Take(3).ToList())}.");
         }
         foreach (var e in extra.Distinct())
@@ -180,16 +183,19 @@ public static class Welcome
 
     /// <summary>
     /// The theories to ask about now: those the site said are due, and those sealed here whose time has
-    /// come (<paramref name="msqIndex"/> at or past their due index), each once, not those answered.
+    /// come (<paramref name="msqIndex"/> at or past their due index), each once, not those answered, nor
+    /// those sealed again (<paramref name="snoozed"/>: asked again when the next chapter closes).
     /// </summary>
-    public static List<DueTheory> DueTheories(IReadOnlyList<DueTheory> fromSite, IReadOnlyList<LocalTheory> local, int msqIndex, IReadOnlySet<Guid>? answered = null)
+    public static List<DueTheory> DueTheories(IReadOnlyList<DueTheory> fromSite, IReadOnlyList<LocalTheory> local, int msqIndex,
+        IReadOnlySet<Guid>? answered = null, IReadOnlySet<Guid>? snoozed = null)
     {
         var list = new List<DueTheory>();
         var ids = new HashSet<Guid>();
+        bool Out(Guid id) => answered?.Contains(id) == true || snoozed?.Contains(id) == true;
         foreach (var t in fromSite)
-            if (answered?.Contains(t.Id) != true && ids.Add(t.Id)) list.Add(t);
+            if (!Out(t.Id) && ids.Add(t.Id)) list.Add(t);
         foreach (var t in local)
-            if (!t.Answered && t.DueIndex <= msqIndex && answered?.Contains(t.Id) != true && ids.Add(t.Id))
+            if (!t.Answered && t.DueIndex <= msqIndex && !Out(t.Id) && ids.Add(t.Id))
                 list.Add(new DueTheory(t.Id, t.Body, t.SealedAt, t.SealedQuest));
         return list;
     }
