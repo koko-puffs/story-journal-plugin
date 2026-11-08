@@ -22,7 +22,7 @@
 
 - The database functions the plugin calls (`sj_plugin_hello`, `sj_plugin_sync`, `sj_plugin_note`,
   `sj_plugin_theory`, `sj_plugin_theory_answer`) and the photo function (`sj-plugin-photo`) are in
-  kokos-tools: `supabase/migrations/20261108150000_sj_story_journal.sql` and
+  kokos-tools: `supabase/migrations/20261108164846_sj_story_journal.sql` and
   `supabase/functions/sj-plugin-photo/index.ts`. Their arguments, answers, refusal hints (`token`,
   `off`, `rate`, `size`, `data`, `gone`) and hourly limits are what `Session/SiteSync.cs`,
   `Core/SiteRpc.cs`, `Core/SyncPolicy.cs` and `Core/PhotoUpload.cs` are written against.

@@ -2,7 +2,7 @@
 
 How the plugin works, where things are, and why. The site's side (the database functions, the
 recaps, the Codex's pages) is in kokos-tools' DETAILS.md, under Story Journal; the contract between
-the two halves is kokos-tools' `supabase/migrations/20261108150000_sj_story_journal.sql` (its
+the two halves is kokos-tools' `supabase/migrations/20261108164846_sj_story_journal.sql` (its
 comments) and the build brief, `mockups/story-journal/BRIEF.md`, with the mock-up beside it
 (`index.html`, the "In-game plugin" screens).
 
