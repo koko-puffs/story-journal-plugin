@@ -41,7 +41,8 @@ public enum SyncStep
 
 /// <summary>
 /// How the sync answers the site's refusals (its hints, the migration's): <c>token</c> relink; <c>off</c>
-/// keep the queue and retry later; <c>rate</c> back off; <c>size</c> and <c>data</c> first try once
+/// (the tool switched off) and <c>full</c> (the account's journal holds 20 characters: one must be
+/// forgotten on the site before this one is kept) keep the queue and retry later; <c>rate</c> back off; <c>size</c> and <c>data</c> first try once
 /// without the main story's reading when it went along (it's measured against the site's limit too, and
 /// may be what's at fault), then split the batch down to the event at fault and set that one aside (and,
 /// for <c>data</c>, see whether it's the session itself); <c>gone</c> and anything else retry later. Pure.
@@ -58,7 +59,7 @@ public static class SyncPolicy
         if (result.TokenRefused || result.Hint == "token") return SyncStep.Relink;
         switch (result.Hint)
         {
-            case "off":
+            case "off" or "full":
                 return SyncStep.Off;
             case "rate":
                 return SyncStep.Rate;

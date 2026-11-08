@@ -35,7 +35,7 @@ public sealed record RpcResult(bool Ok, string? Body, string? Why, string? Hint 
 public static class SiteRpc
 {
     /// <summary>The refusals the site words for players (its hints), besides <c>token</c>.</summary>
-    private static readonly string[] Hints = { "off", "rate", "size", "data", "gone" };
+    private static readonly string[] Hints = { "off", "full", "rate", "size", "data", "gone" };
 
     /// <summary>The site's functions for the plugin, and only those, are ever called.</summary>
     private static readonly Regex Function = new(@"^sj_plugin_[a-z_]{1,40}$", RegexOptions.CultureInvariant);

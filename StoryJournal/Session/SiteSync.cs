@@ -283,7 +283,7 @@ public sealed class SiteSync : IDisposable
             Services.Log.Warning("Story Journal: the site refused the token; link again");
             return;
         }
-        if (r.Hint == "off")
+        if (r.Hint is "off" or "full")
         {
             pace.Done(false, now);
             offUntil = now + SyncPolicy.OffWait;

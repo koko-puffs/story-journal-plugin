@@ -80,6 +80,9 @@ in the log), so syncing never stops waiting for an answer that isn't coming.
   sent; the window says "Link refused" and Settings asks for a new token. The queue is kept.
 - `off`: Story Journal (or cloud saving) is switched off on the site. Everything is kept; tried again
   in 10 minutes. The header says "Switched off on the site".
+- `full`: the account's journal already holds 20 characters, and this one isn't among them (the
+  site never drops a character's journal to make room). Everything recorded is kept and tried
+  again every 10 minutes, with the site's words in the header, until one's forgotten on the site.
 - `rate`: too often. That kind of call waits 5 minutes (photos 15), then carries on.
 - `size` and `data` on a sync: with the main story's reading along, the same goes again once without
   it (the reading may be what's too big: the site measures it as jsonb's text, `octet_length(x::text)`,

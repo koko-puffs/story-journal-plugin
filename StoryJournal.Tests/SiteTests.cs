@@ -152,6 +152,9 @@ public class SyncPolicyTests
         Assert.Equal(SyncStep.Acknowledge, SyncPolicy.Decide(new RpcResult(true, "{}", null), 10));
         Assert.Equal(SyncStep.Relink, SyncPolicy.Decide(Refused("token"), 10));
         Assert.Equal(SyncStep.Off, SyncPolicy.Decide(Refused("off"), 10));
+        // A 21st character: nothing's set aside, it waits until one's forgotten on the site.
+        Assert.Equal(SyncStep.Off, SyncPolicy.Decide(Refused("full"), 10));
+        Assert.Equal(SyncStep.Off, SyncPolicy.Decide(Refused("full"), 1, withProgress: true));
         Assert.Equal(SyncStep.Rate, SyncPolicy.Decide(Refused("rate"), 10));
         Assert.Equal(SyncStep.Retry, SyncPolicy.Decide(Refused("gone"), 10));
         Assert.Equal(SyncStep.Retry, SyncPolicy.Decide(new RpcResult(false, null, "Couldn't reach the site.", Unreachable: true), 10));
