@@ -20,7 +20,7 @@ public enum MainTab
 }
 
 /// <summary>
-/// The journal (<c>/sj</c>), in the look of Koko's plugins and Story Journal's crystal blue. Six tabs:
+/// The journal (<c>/sj</c>), in the look of Koko's plugins and Story Journal's cherry red. Six tabs:
 /// Now (where you are, why you're here, who's in it, what's ahead, a quick note), This session (what's
 /// been written tonight), Codex (what the world has told you so far, and Ask the journal), Notes,
 /// Theories, and Settings. Everything it shows is read from <see cref="Journal"/> each frame; what you

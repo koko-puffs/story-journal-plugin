@@ -550,6 +550,18 @@ public sealed class MsqPath
     public bool ChapterDone(MsqQuest quest) =>
         quest.Chapter != 0 && Quests.Where(q => q.Chapter == quest.Chapter).All(q => q.Id == quest.Id || done.Contains(q.Id));
 
+    /// <summary>
+    /// Is a chapter (QuestRedoChapterUI row) finished: its last quest on the road done? False for a chapter
+    /// with no quest on the road (another city's opening, or not the main story's).
+    /// </summary>
+    public bool ChapterFinished(uint chapter)
+    {
+        if (chapter == 0) return false;
+        for (var i = Quests.Count - 1; i >= 0; i--)
+            if (Quests[i].Chapter == chapter) return done.Contains(Quests[i].Id);
+        return false;
+    }
+
     /// <summary>Finishing <paramref name="quest"/> finished its expansion's story.</summary>
     public bool ExpansionDone(MsqQuest quest) =>
         Quests.Where(q => q.Expansion == quest.Expansion).All(q => q.Id == quest.Id || done.Contains(q.Id));

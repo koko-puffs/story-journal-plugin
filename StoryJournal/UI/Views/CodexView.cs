@@ -25,15 +25,21 @@ public sealed partial class MainWindow
         if (key == codexFor) return codexRows;
         codexFor = key;
         var codex = journal.Codex.Codex;
-        var spoilers = journal.Prefs.Spoilers;
+        var gates = story?.Gates(journal.Prefs.Spoilers) ?? CodexGates.None(journal.Prefs.Spoilers);
         var seen = story?.Seen ?? new HashSet<string>();
         var term = codexAsk.Trim();
         var rows = new List<CodexRow>();
-        var entries = term.Length > 0 ? codex.Ask(term, seen, spoilers)
-            : codex.Entries.Where(e => spoilers == Spoilers.Off || seen.Contains(e.Key)).OrderBy(e => KindOrder(e.Kind)).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        // Thousands of entries (every person who speaks in a quest): the people met looked up by name, once.
+        var metByName = new Dictionary<string, MetPerson>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in memory?.People ?? (IEnumerable<MetPerson>)Array.Empty<MetPerson>()) metByName.TryAdd(p.Name, p);
+        var entries = term.Length > 0 ? codex.Ask(term, seen, gates) : codex.Entries.Where(e => codex.Visible(e, seen, gates));
+        var shownMet = new HashSet<MetPerson>();
         foreach (var e in entries)
         {
-            var met = memory?.People.FirstOrDefault(p => e.Names.Any(n => string.Equals(n, p.Name, StringComparison.OrdinalIgnoreCase)));
+            MetPerson? met = null;
+            foreach (var n in e.Names)
+                if (metByName.TryGetValue(n, out met)) break;
+            if (met != null) shownMet.Add(met);
             rows.Add(new CodexRow(e.Name, e.Kind, e, met, null));
         }
         // People met and places been that the Codex has no entry for still show, with where and when.
@@ -41,14 +47,14 @@ public sealed partial class MainWindow
         {
             foreach (var p in memory.People)
             {
-                if (rows.Any(r => r.Met == p) || codex.Find(p.Name) != null) continue;
+                if (shownMet.Contains(p) || codex.Find(p.Name) != null) continue;
                 if (term.Length > 0 && !p.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) continue;
                 rows.Add(new CodexRow(p.Name, "person", null, p, null));
             }
             foreach (var id in memory.Visited)
             {
                 var (name, region, _) = Game.Places.Territory(id);
-                if (name.Length == 0 || codex.Place(name) != null || rows.Any(r => r.Name == name)) continue;
+                if (name.Length == 0 || codex.Place(name) != null || rows.Any(r => r.Entry == null && r.Name == name)) continue;
                 if (term.Length > 0 && !name.Contains(term, StringComparison.OrdinalIgnoreCase)) continue;
                 rows.Add(new CodexRow(name, "place", null, null, region));
             }
@@ -60,16 +66,54 @@ public sealed partial class MainWindow
     {
         "person" => 0,
         "place" => 1,
-        "lore" => 2,
-        _ => 3,
+        "chapter" => 2,
+        "lore" => 3,
+        "item" => 4,
+        "collection" => 6,
+        _ => 5,
     };
 
     private static string KindWord(string kind) => kind switch
     {
         "person" => "PEOPLE",
         "place" => "PLACES",
+        "chapter" => "CHAPTERS",
         "lore" => "LORE",
+        "item" => "KEY ITEMS",
+        "collection" => "COLLECTIONS",
         _ => "WORDS",
+    };
+
+    private static Icon KindIcon(string kind) => kind switch
+    {
+        "person" => Icon.Users,
+        "place" => Icon.MapPin,
+        "chapter" => Icon.Bookmark,
+        "item" => Icon.Package,
+        "collection" => Icon.Sparkles,
+        _ => Icon.BookOpen,
+    };
+
+    /// <summary>Where a layer's words are from, in small words under them (version 2's <c>source</c>).</summary>
+    private static string? SourceWords(string source) => source switch
+    {
+        "codex" => "the game's codex",
+        "synopsis" => "the chapter's synopsis",
+        "title" => "their title",
+        "record" => "a field record",
+        "notes" => "the variant dungeons' notes",
+        "sight" => "the sightseeing log",
+        "fate" => "a FATE",
+        "item" => "a key item",
+        "deity" => "the Twelve",
+        "card" => "a Triple Triad card",
+        "minion" => "a minion",
+        "mount" => "a mount",
+        "song" => "an orchestrion roll",
+        "restoration" => "the Restoration's notices",
+        "occult" => "the Occult Crescent",
+        "" => null,
+        _ => source,
     };
 
     private void DrawCodex()
@@ -106,16 +150,38 @@ public sealed partial class MainWindow
         }
     }
 
+    private (string? Open, List<CodexRow>? Rows) openFor;
+    private HashSet<object> openRows = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Is a row open (the name opened is its name or an alias)? Worked out once per name opened and list of rows, not per row each frame.</summary>
+    private bool RowOpen(CodexRow row)
+    {
+        if (codexOpen is not { } name) return false;
+        if (openFor.Open != name || !ReferenceEquals(openFor.Rows, codexRows))
+        {
+            openFor = (name, codexRows);
+            openRows = new HashSet<object>(codexRows.Where(r => string.Equals(name, r.Name, StringComparison.OrdinalIgnoreCase)
+                                                               || r.Entry?.Names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)) == true),
+                ReferenceEqualityComparer.Instance);
+        }
+        return openRows.Contains(row);
+    }
+
     private void CodexRowDraw(CodexRow row, int index, StoryState? story)
     {
-        var open = codexOpen != null && (string.Equals(codexOpen, row.Name, StringComparison.OrdinalIgnoreCase)
-                                         || row.Entry?.Names.Any(n => string.Equals(n, codexOpen, StringComparison.OrdinalIgnoreCase)) == true);
+        var open = RowOpen(row);
         var at = Kit.At;
         var w = Kit.Width;
         var h = S(34);
+        // Thousands of rows with spoilers off: those out of sight only take their space.
+        if (!open && !Dalamud.Bindings.ImGui.ImGui.IsRectVisible(at, at + new Vector2(w, h)))
+        {
+            Kit.Reserve(at, w, h);
+            return;
+        }
         var (clicked, hovered, _) = Kit.Hit(Ids.Of("##codex-row", index), at, new Vector2(w, h));
         if (hovered || open) Kit.Dl.AddRectFilled(at, at + new Vector2(w, h), Palette.U32(open ? Palette.AccentRow : Palette.RowHover), S(10));
-        var icon = row.Kind switch { "person" => Icon.Users, "place" => Icon.MapPin, _ => Icon.BookOpen };
+        var icon = KindIcon(row.Kind);
         Icons.Draw(Kit.Dl, icon, at + new Vector2(S(10), (h - S(14)) / 2), S(14), row.Entry != null ? Palette.Accent : Palette.Muted);
         var note = row.Met != null ? $"met {Ui.Ago(row.Met.At)}" : row.Place;
         var nw = note != null ? Txt.Measure(note, Face.Sans, 12).X : 0;
@@ -134,13 +200,20 @@ public sealed partial class MainWindow
         Kit.Gap(4);
         if (row.Entry is { } entry)
         {
-            var layers = story != null
-                ? journal.Codex.Codex.Layers(entry, story.Corpus, story.Seen, story.ExpansionReached, journal.Prefs.Spoilers)
-                : new List<CodexLayer>();
+            var codex = journal.Codex.Codex;
+            var spoilers = journal.Prefs.Spoilers;
+            var layers = story != null ? codex.Layers(entry, story.Corpus, story.Seen, story.Gates(spoilers))
+                : spoilers == Spoilers.Off ? entry.Layers.ToList() : new List<CodexLayer>();
+            if (entry.Subtitle is { Length: > 0 } subtitle)
+            {
+                Parts.Quiet(subtitle);
+                Kit.Gap(4);
+            }
             if (layers.Count == 0) Parts.Quiet("More unlocks as the story goes on.");
             foreach (var l in layers)
             {
                 Parts.Story(l.Text);
+                if (SourceWords(l.Source) is { } from) Parts.Quiet(from);
                 Kit.Gap(6);
             }
             if (entry.Aliases.Count > 0) Parts.Quiet("Also: " + string.Join(", ", entry.Aliases));

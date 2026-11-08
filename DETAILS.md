@@ -25,8 +25,10 @@ finished quest, unless they turn spoilers off on the site:
   chapter's reached).
 - Duties ahead: on **strict** the tracker says only "a duty in N quests", and the journal's Now tab
   shows the next one behind **Show**; on **gentle** their names show; **off** shows everything.
-- The Codex shows an entry only once one of its names has appeared in what the player has seen, and
-  a layer only when its needs are seen and its expansion reached (all of it with spoilers off).
+- The Codex's words are the game's own, each behind the gate the game gives it: a layer shows only
+  when its quest or chapter is finished, its expansion reached or the main story done, as it says;
+  one with no gate only once the entry's name has appeared in what the player has seen. Collections
+  (cards, minions, mounts, songs) only with spoilers off; with spoilers off, everything.
 - The next main-story quest's name (and where it's given) shows before it's taken: the game's own
   scenario guide shows it too.
 
@@ -303,25 +305,64 @@ place says so. *Unverified*.
 
 ## The Codex (`Core/Codex.cs`, `Session/CodexStore.cs`)
 
-`https://www.kokos-tools.com/story-journal/codex.json` (`{ version: 1, entries: [{ key, kind, name,
-aliases, zone, layers: [{ text, needs, expansion? }], whisper }] }`), fetched on a worker, kept in the
-plugin's config folder (`codex.json`) and fetched again once a day. Until then the copy kept is
-used, or none: the Codex is empty, and only the people and places the plugin saw itself show.
+**The file.** `https://assets.kokos-tools.com/story/en/codex.json`, made from the game's files by
+kokos-tools (its `design/story-journal/GAMEDATA.md`, "The Codex from the game"): `{ version: 2,
+entries: [{ key, kind, name, aliases, zone?, subtitle?, image?, layers: [{ text, source, quest?,
+chapter?, expansion?, complete?, spoilers?: 'off' }], whisper? }] }`, `kind` one of `person`,
+`place`, `lore`, `word`, `item`, `chapter`, `collection`; about 4–5 thousand entries (every person
+who speaks in a quest), some megabytes. Fetched on a worker (packed with Brotli or gzip on the way,
+read as a stream, at most 64 MB unpacked), kept in the plugin's config folder (`codex.json`) and
+fetched again once a day. Until then the copy kept is used, or none: the Codex is empty, and only the
+people and places the plugin saw itself show. The site's old hand-written Codex
+(`https://www.kokos-tools.com/story-journal/codex.json`, `version: 1`, layers `{ text, needs,
+expansion? }`) is gone; a copy of it kept from 0.1.0 is still read until the new one comes, and the
+new one is fetched at once when that's all there is. Another version isn't read (the copy kept stays).
+It's read with `JsonDocument` from the bytes (no string of the whole file, the few kinds and sources
+kept once each); 5,000 entries read in a fifth of a second in the tests.
 
-An entry is **seen** once any of its names (name or aliases) appears as a whole word in the corpus
-above (no letter or digit just before or after; curly and straight apostrophes are the same): a name
-written with a capital only as written, as a proper noun ("the Echo", never "an echo of"), and one
-written in lower case ("aether") in any case. The site's `model/codex.ts` matches the same way. A layer shows when its entry is seen, every name in its `needs` is seen too, and the
-player's expansion (the current quest's) is at least its `expansion`; with spoilers off, every layer.
-The arrival card's sentence is the `whisper` of the `place` entry whose `zone` is the game's zone
-name. "Ask the journal" (the Codex tab's field) finds seen entries whose name or alias is the word,
-starts with it, or holds it. The Codex's words are Koko's, proofread by Koko; the plugin only shows
-them.
+**Seen.** An entry is seen once any of its names (name or aliases) appears as a whole word in the
+corpus above (no letter or digit just before or after; curly and straight apostrophes are the same):
+a name written with a capital only as written, as a proper noun ("the Echo", never "an echo of"), and
+one written in lower case ("aether") in any case. The site's `model/codex.ts` matches the same way.
+Thousands of names against hundreds of journals: the corpus's words are gathered once, and only a
+name whose every word is among them is looked for in the texts (tens of milliseconds, on the story's
+worker).
+
+**Gates.** A layer shows when every gate it has is met (`Codex.Shows`, the reading's
+`StoryState.Gates`):
+
+- `quest`: that quest finished. The plugin reads the game's quest log for every quest a layer waits
+  for (`Codex.GateQuests`, side quests among them), with the main story's, a bit each.
+- `chapter`: that chapter (QuestRedoChapterUI row) finished. The plugin can tell it only for the main
+  story's chapters: finished when its last quest on the player's road is done
+  (`MsqPath.ChapterFinished`). Chapters' quests aren't in `codex.json`, so another chapter (side
+  stories, job quests, raids) stays shut unless the layer also has a `quest`, which then decides, or
+  spoilers are off.
+- `expansion`: that expansion reached (the current quest's; 0 A Realm Reborn … 5 Dawntrail).
+- `complete`: the whole main story done.
+- `spoilers: 'off'`: only with spoilers off.
+- No gate: once the entry is seen. A gated layer doesn't wait for the entry to be seen (the game
+  opens it with its quest); an entry is in the player's Codex (the tab, Ask the journal) once it's
+  seen or one of its gated layers is open (`Codex.Visible`).
+
+With spoilers off every entry and every layer shows. Collections (`kind: 'collection'`: Triple
+Triad cards, minions, mounts, orchestrion rolls) only with spoilers off, whatever their layers say.
+A version 1 file reads as it did: every layer waits for its entry to be seen, its `needs` seen too and
+its expansion reached.
+
+**Whispers.** The arrival card's sentence is the `whisper` of the `place` entry whose `zone` is the
+game's zone name (the first sight's impression), else its first `sight` layer that's open (you're
+there: the place counts as seen). Who's that? finds the person by name or alias, else the first
+person whose name holds theirs as a whole word, and shows their first layer that's open, their title
+(`source: 'title'`) first. "Ask the journal" (the Codex tab's field) finds the entries in the
+player's Codex whose name or alias is the word, starts with it, or holds it. The words are the game's;
+the plugin only shows them.
 
 ## The windows (`UI/`)
 
 All in the look of Koko's plugins (the kit in `UI/Kit`: Geist, a black ground, hairline edges, pill
-buttons) with Story Journal's accent, crystal blue `#6cb6ff`, and the mark's tile blue `#2a6fd6`.
+buttons) with Story Journal's accent, cherry red with a hint of pink `#f2425f` (was crystal blue
+`#6cb6ff`), and the mark's deeper tile red `#c21d3a` (was `#2a6fd6`); the quill stays gold `#e8d6ad`.
 Every card waits for a calm moment (`InGame.Calm`: not in combat, a duty, a cutscene, a loading
 screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group Pose anyway.
 
@@ -344,9 +385,12 @@ screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group P
     Open on the website). Linking, when not linked.
   - *This session*: playing for, quests, cutscenes, photos; Save the line, Take a photo, End
     session; everything written in it, newest first; what's waiting for the site.
-  - *Codex*: Ask the journal; the seen entries by kind (people, places, lore, words), each opening to
-    its layers so far, when you met them, your notes about them, a note about them, its page on the
-    site; people met and places been that the Codex has no entry for.
+  - *Codex*: Ask the journal; the entries in your Codex by kind (people, places, chapters, lore, key
+    items, words; collections only with spoilers off), each opening to its subtitle and its layers
+    open so far, each with where it's from in small words ("the game's codex", "the chapter's
+    synopsis", "the sightseeing log"…), when you met them, your notes about them, a note about them,
+    its page on the site; people met and places been that the Codex has no entry for. Rows out of
+    sight are only spaced, not drawn (thousands with spoilers off).
   - *Notes*: a note (and who or what it's about); notes waiting to send; your unresolved notes (from
     hello).
   - *Theories*: seal one (asked about in 5, 10 or 25 main-story quests, or not; sealed before the
@@ -357,12 +401,12 @@ screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group P
 - **The tracker** (`TrackerWindow`): the expansion and its percentage, a bar, the next duty ("4
   quests to the next duty"; its name too unless spoilers are strict), the pace lock's warning, and
   "recording paused". Movable; its title opens the journal. Off in Settings.
-- **Arrival cards** (`ArrivalWindow`): a place's whisper, the first time you reach it (whispers
+- **Arrival cards** (`ArrivalWindow`): a place's whisper (else its first sight), the first time you reach it (whispers
   *some*) or every time (*chatty*); never with *quiet*. Waits up to 2 minutes for a calm moment, shows
   for 14 s. More (its Codex entry), Fewer of these (whispers one step quieter, here).
 - **Who's that?** (`WhoWindow`): target someone you've met (not another player) with whispers *some*
-  or *chatty*: their Codex name and first layer so far, when and where you met them, lines saved and
-  notes about them.
+  or *chatty*: their Codex name and first layer open (their title, when it is), when and where you
+  met them, lines saved and notes about them.
 - **Capture toasts** (`ToastWindow`): line saved, photo taken, note saved, theory sealed or answered,
   the link made, problems. Top right, 6 s each, click-through.
 - **Quick note** (`QuickNoteWindow`, its key or `/sj note`): save it, or seal it as a theory (asked
@@ -415,8 +459,9 @@ matching run on workers (one reading at a time, started when what it depends on 
 to the site and every photo's making and sending too, and the queue's batches, rewrites and
 `sessions.json`. The framework thread reads the game (cheap reads, twice a second), appends a line to
 the queue's file per event, and draws; the queue's counts are read without its lock. A Codex fetch
-under way at unload is stopped before the connection's let go, and ends quietly. The Codex's pattern
-cache is thread-safe; Lumina's sheets are read from both (they're read-only).
+under way at unload is stopped before the connection's let go, and ends quietly. The Codex is read
+on a worker and never changes once made (it's swapped whole), so both threads share it; Lumina's
+sheets are read from both (they're read-only).
 
 Every game read is guarded (null pointers, not logged in, a loading screen, a patch that moved
 something): it answers "nothing" rather than throwing. Every handler (framework update, login and
@@ -474,6 +519,18 @@ until it's made: until then the download fails, so release before telling anyone
 6. Link, and see the session on the site.
 
 ## Release notes
+
+### 0.1.1 (unreleased)
+
+- The Codex is the game's own: about 5,000 entries made from the game's files by kokos-tools (people
+  and their titles, places and their sights, the game's codex, chapters' synopses, key items, lore,
+  and collections with spoilers off), from `assets.kokos-tools.com`, each layer behind its gate (a
+  quest or chapter finished, an expansion reached, the main story done). The old hand-written Codex
+  kept on this PC is read until the new one comes. The Codex tab shows where each layer is from.
+- Arrival cards fall back to a place's first sight; Who's that? shows a person's title first.
+- Story Journal's colour is cherry red with a hint of pink (`#f2425f`, the mark's tile `#c21d3a`),
+  as on the site, in place of crystal blue: buttons, title bars, the tracker's bar, toasts and the
+  icon. The quill stays gold.
 
 ### 0.1.0
 

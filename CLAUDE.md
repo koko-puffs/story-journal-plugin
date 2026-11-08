@@ -29,7 +29,9 @@
 - The shapes both sides read: the events' data (`sj_clean_event` there, `Core/Events.cs` here), the
   session (`sj_put_session`, `Core/Sessions.cs`), the main story's reading (`Progress` in kokos-tools'
   `design/story-journal/BRIEF.md`, `Core/Progress.cs` here), hello's answer (`Core/Hello.cs`) and the
-  Codex's file (`public/story-journal/codex.json` there, `Core/Codex.cs` here). Change both together,
+  Codex's file (the game-derived `story/<lang>/codex.json` the site's extractor writes —
+  kokos-tools' `scripts/story-extract`, served from `https://assets.kokos-tools.com/story/en/codex.json`
+  — and `Core/Codex.cs` here; its gates are in kokos-tools' `design/story-journal/GAMEDATA.md`). Change both together,
   and the tests in `StoryJournal.Tests/EventTests.cs` that check the names.
 - The brief (`design/story-journal/BRIEF.md`) and its mock-up (`index.html`, the "In-game plugin"
   screens) are how it was meant; the spoiler rule there is the one rule above all.

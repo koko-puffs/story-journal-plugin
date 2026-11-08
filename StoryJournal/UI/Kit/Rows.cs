@@ -48,7 +48,7 @@ public struct Wrap
 /// <summary>
 /// The rows the screens share, as the site lays them out: a section's heading with a quiet note on
 /// its right ("Waiting runs … 2 from kokos-tools.com"), tabs as a pick-one pill, the round
-/// blue icon wells of the boxes, and the row of fact boxes (Steps · Spent · Elapsed).
+/// cherry icon wells of the boxes, and the row of fact boxes (Steps · Spent · Elapsed).
 /// </summary>
 public static partial class Kit
 {
@@ -128,7 +128,7 @@ public static partial class Kit
     // Wells and facts.
 
     /// <summary>
-    /// The round icon well of the boxes: its dark blue with the icon in blue (the
+    /// The round icon well of the boxes: its dark cherry with the icon in cherry (the
     /// favicon's), or grey for something quiet.
     /// </summary>
     public static void IconWell(Vector2 pos, float size, Icon icon, bool quiet = false)

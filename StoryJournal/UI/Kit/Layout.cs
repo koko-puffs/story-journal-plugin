@@ -6,7 +6,7 @@ using static StoryJournal.UI.Theme;
 
 namespace StoryJournal.UI;
 
-/// <summary>A chip's colour: the outline, green (done, found), blue (live, yours), or red (failed, missing).</summary>
+/// <summary>A chip's colour: the outline, green (done, found), the cherry accent (live, yours), or coral red (failed, missing).</summary>
 public enum ChipKind
 {
     Plain,

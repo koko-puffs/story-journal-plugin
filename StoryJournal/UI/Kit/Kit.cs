@@ -10,7 +10,7 @@ namespace StoryJournal.UI;
 /// <summary>The four buttons of the design system.</summary>
 public enum Btn
 {
-    /// <summary>The one blue pill on a screen, dark words on it: what goes ahead.</summary>
+    /// <summary>The one cherry pill on a screen, dark words on it: what goes ahead.</summary>
     Primary,
 
     /// <summary>An outline with the strong edge: everything else you press.</summary>
@@ -22,10 +22,10 @@ public enum Btn
     /// <summary>A danger outline: Stop.</summary>
     Danger,
 
-    /// <summary>A toggle that's on: the blue wash and edge.</summary>
+    /// <summary>A toggle that's on: the cherry wash and edge.</summary>
     Picked,
 
-    /// <summary>The ink pill: near white, dark words (a second thing that goes ahead, beside the blue one).</summary>
+    /// <summary>The ink pill: near white, dark words (a second thing that goes ahead, beside the cherry one).</summary>
     Ink,
 }
 
@@ -59,12 +59,12 @@ public enum Tone
 
 /// <summary>
 /// The site's controls, as Koko's plugins draw them, with ImGui's draw lists: pill buttons
-/// (the blue one goes ahead, the rest outlined), round icon buttons, switches, segmented pills,
+/// (the cherry one goes ahead, the rest outlined), round icon buttons, switches, segmented pills,
 /// status pills, cards with 1px edges, the dashed "add" outline, the progress bar, tick boxes,
 /// steppers, fields. Each takes the screen position to draw at (layout is the views'), hit-tests with
 /// an invisible ImGui button (so keyboard navigation works), and shows hover (edges lighten), press,
 /// focus (a 2px white ring, 2px out) and disabled (50% for buttons, 40% for small controls). Made
-/// from Housing Studio's plugin kit (by way of Raid Planner's), in Story Journal's crystal blue.
+/// from Housing Studio's plugin kit (by way of Raid Planner's), in Story Journal's cherry red.
 /// </summary>
 public static partial class Kit
 {
@@ -246,7 +246,7 @@ public static partial class Kit
     // ---------------------------------------------------------------------------------------------
     // Switch, segmented pill, chips, pills.
 
-    /// <summary>The site's switch, 44×24: an outline with a grey knob, filled blue with a dark knob when on. Returns true when flipped.</summary>
+    /// <summary>The site's switch, 44×24: an outline with a grey knob, filled cherry with a dark knob when on. Returns true when flipped.</summary>
     public static bool Switch(string id, Vector2 pos, bool on, bool disabled = false)
     {
         var size = new Vector2(S(44), S(24));
@@ -431,7 +431,7 @@ public static partial class Kit
         dl.AddCircle(center, r - 0.5f, Palette.U32(Palette.LineHover), 16, 1f);
     }
 
-    /// <summary>A round well with an icon (the blue wash and blue, green for done).</summary>
+    /// <summary>A round well with an icon (the cherry wash and cherry, green for done).</summary>
     public static void Round(Vector2 pos, float diameter, Icon icon, float iconPx, Vector4 fill, Vector4 ink, float stroke = 1.8f)
     {
         var dl = Dl;
@@ -440,7 +440,7 @@ public static partial class Kit
         Icons.Draw(dl, icon, c - new Vector2(iconPx / 2), iconPx, ink, stroke);
     }
 
-    /// <summary>A tick box, 18px with a 5px radius: the hover edge, blue with a dark tick when ticked.</summary>
+    /// <summary>A tick box, 18px with a 5px radius: the hover edge, cherry with a dark tick when ticked.</summary>
     public static void TickBox(Vector2 pos, bool on, bool hovered)
     {
         var dl = Dl;
@@ -535,7 +535,7 @@ public static partial class Kit
         return changed;
     }
 
-    /// <summary>The progress bar (8px unless told): a dark track and a blue fill, both pills.</summary>
+    /// <summary>The progress bar (8px unless told): a dark track and a cherry fill, both pills.</summary>
     public static void Progress(Vector2 pos, float width, float fraction, float heightCss = 8, Vector4? fill = null)
     {
         var dl = Dl;

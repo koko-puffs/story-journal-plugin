@@ -310,14 +310,14 @@ public class CodexTests
         var entry = X.Entries[0];
         var corpus = new List<string> { "Haurchefant took you in." };
         var seen = X.SeenKeys(corpus);
-        Assert.Single(X.Layers(entry, corpus, seen, 0, Spoilers.Strict));
+        Assert.Single(X.Layers(entry, corpus, seen, new CodexGates(Spoilers.Strict, 0)));
         corpus.Add("The gates of Ishgard stay shut.");
         seen = X.SeenKeys(corpus);
-        Assert.Single(X.Layers(entry, corpus, seen, 0, Spoilers.Strict));
-        Assert.Equal(2, X.Layers(entry, corpus, seen, 1, Spoilers.Gentle).Count);
+        Assert.Single(X.Layers(entry, corpus, seen, new CodexGates(Spoilers.Strict, 0)));
+        Assert.Equal(2, X.Layers(entry, corpus, seen, new CodexGates(Spoilers.Gentle, 1)).Count);
         // Not seen: nothing, unless spoilers are off.
-        Assert.Empty(X.Layers(X.Entries[2], corpus, seen, 5, Spoilers.Strict));
-        Assert.Single(X.Layers(X.Entries[2], corpus, seen, 0, Spoilers.Off));
+        Assert.Empty(X.Layers(X.Entries[2], corpus, seen, new CodexGates(Spoilers.Strict, 5)));
+        Assert.Single(X.Layers(X.Entries[2], corpus, seen, new CodexGates(Spoilers.Off, 0)));
     }
 
     [Fact]
@@ -334,11 +334,11 @@ public class CodexTests
     public void AskingFindsOnlyWhatsBeenSeen()
     {
         var seen = X.SeenKeys(new[] { "Haurchefant and Ishgard." });
-        Assert.Equal("haurchefant", X.Ask("haurch", seen, Spoilers.Strict)[0].Key);
-        Assert.Equal("ishgard", Assert.Single(X.Ask("Ishgard", seen, Spoilers.Strict)).Key);
-        Assert.Empty(X.Ask("Y'shtola", seen, Spoilers.Strict));
-        Assert.Single(X.Ask("Y’shtola", seen, Spoilers.Off));
-        Assert.Empty(X.Ask("x", seen, Spoilers.Off));
+        Assert.Equal("haurchefant", X.Ask("haurch", seen, CodexGates.None(Spoilers.Strict))[0].Key);
+        Assert.Equal("ishgard", Assert.Single(X.Ask("Ishgard", seen, CodexGates.None(Spoilers.Strict))).Key);
+        Assert.Empty(X.Ask("Y'shtola", seen, CodexGates.None(Spoilers.Strict)));
+        Assert.Single(X.Ask("Y’shtola", seen, CodexGates.None(Spoilers.Off)));
+        Assert.Empty(X.Ask("x", seen, CodexGates.None(Spoilers.Off)));
         Assert.Equal("haurchefant", X.Find("ser haurchefant greystone")!.Key);
     }
 
@@ -347,6 +347,227 @@ public class CodexTests
     {
         var named = X.Named("Ser Haurchefant welcomed you; Minfilia sent word.", new[] { "Minfilia", "Haurchefant", "Alphinaud", "Haurchefant" });
         Assert.Equal(new[] { "Minfilia", "Haurchefant" }, named);
+    }
+
+    [Fact]
+    public void VersionOneIsStillRead()
+    {
+        Assert.Equal(1, X.FileVersion);
+        // A version 1 layer always waits for its entry to be seen, its expansion too.
+        Assert.All(X.Entries.SelectMany(e => e.Layers), l => Assert.True(l.NeedsSeen));
+        Assert.Empty(X.GateQuests);
+        Assert.Empty(X.Layers(X.Entries[0], new List<string>(), new HashSet<string>(), new CodexGates(Spoilers.Strict, 5, true, _ => true, _ => true)));
+    }
+
+    [Fact]
+    public void UnknownVersionsAreNotRead() => Assert.Empty(Codex.Read("""{ "version": 3, "entries": [ { "key": "a", "name": "A", "layers": [] } ] }""").Entries);
+}
+
+public class CodexV2Tests
+{
+    private const uint Q1 = 65537 + 1000;
+    private const uint Q2 = 65537 + 2000;
+
+    private const string File = """
+    {
+      "version": 2,
+      "entries": [
+        { "key": "alphinaud", "kind": "person", "name": "Alphinaud", "aliases": [], "subtitle": "Scion",
+          "layers": [
+            { "text": "A young scholar.", "source": "codex" },
+            { "text": "Grandson of Louisoix.", "source": "codex", "quest": 66537 },
+            { "text": "Head of the Crystal Braves.", "source": "codex", "quest": 2000 },
+            { "text": "Alphinaud Leveilleur", "source": "title" }
+          ] },
+        { "key": "ul-dah", "kind": "place", "name": "Ul'dah - Steps of Nald", "aliases": ["Ul'dah"], "zone": "Ul'dah - Steps of Nald",
+          "layers": [ { "text": "The Sapphire Avenue Exchange.", "source": "sight" }, { "text": "A FATE in the desert.", "source": "fate", "expansion": 0 } ] },
+        { "key": "limsa", "kind": "place", "name": "Limsa Lominsa", "aliases": [], "zone": "Limsa Lominsa Lower Decks",
+          "layers": [ { "text": "Behind a gate.", "source": "sight", "quest": 66537 }, { "text": "The Drowning Wench.", "source": "sight" } ], "whisper": "Salt and sails." },
+        { "key": "the-ultimate-weapon", "kind": "chapter", "name": "The Ultimate Weapon", "aliases": [],
+          "layers": [ { "text": "The synopsis.", "source": "synopsis", "chapter": 42 }, { "text": "With its quest.", "source": "synopsis", "chapter": 43, "quest": 66537 } ] },
+        { "key": "bozja", "kind": "lore", "name": "Bozja", "aliases": [], "layers": [ { "text": "Notes.", "source": "notes", "expansion": 5 } ] },
+        { "key": "occult", "kind": "lore", "name": "Occult Crescent", "aliases": [], "layers": [ { "text": "Lore.", "source": "occult", "complete": true } ] },
+        { "key": "card-ifrit", "kind": "collection", "name": "Ifrit", "aliases": [], "layers": [ { "text": "A card.", "source": "card", "spoilers": "off" } ] },
+        { "key": "aether", "kind": "word", "name": "aether", "aliases": [], "layers": [ { "text": "The stuff of life.", "source": "codex" } ] }
+      ]
+    }
+    """;
+
+    private static readonly Codex X = Codex.Read(File);
+
+    private static CodexEntry E(string key) => X.Entries.Single(e => e.Key == key);
+
+    private static readonly HashSet<string> NoneSeen = new();
+
+    private static CodexGates G(Spoilers spoilers = Spoilers.Strict, int expansion = 0, bool complete = false, uint[]? quests = null, uint[]? chapters = null) =>
+        new(spoilers, expansion, complete, q => (quests ?? Array.Empty<uint>()).Contains(QuestIds.Row(q)), c => (chapters ?? Array.Empty<uint>()).Contains(c));
+
+    private static List<string> Texts(string key, IReadOnlySet<string> seen, CodexGates gates) =>
+        X.Layers(E(key), new List<string>(), seen, gates).Select(l => l.Text).ToList();
+
+    [Fact]
+    public void TheFileIsRead()
+    {
+        Assert.Equal(2, X.FileVersion);
+        Assert.Equal(8, X.Entries.Count);
+        var a = E("alphinaud");
+        Assert.Equal("Scion", a.Subtitle);
+        Assert.Equal("codex", a.Layers[0].Source);
+        Assert.True(a.Layers[0].NeedsSeen);
+        Assert.Equal(66537u, a.Layers[1].Quest);
+        Assert.False(a.Layers[1].NeedsSeen);
+        // A quest given as the game's short id is the sheet's row.
+        Assert.Equal(QuestIds.Row(2000), a.Layers[2].Quest);
+        Assert.Equal(new HashSet<uint> { 66537, QuestIds.Row(2000) }, X.GateQuests.ToHashSet());
+        Assert.True(E("card-ifrit").Layers[0].SpoilersOff);
+        Assert.True(E("occult").Layers[0].Complete);
+        Assert.Equal(42u, E("the-ultimate-weapon").Layers[0].Chapter);
+    }
+
+    [Fact]
+    public void ALayerWithNoGateWaitsForItsEntryToBeSeen()
+    {
+        Assert.Empty(Texts("aether", NoneSeen, G()));
+        var seen = X.SeenKeys(new[] { "Thick with Aether here." });
+        Assert.Contains("aether", seen);
+        Assert.Equal(new[] { "The stuff of life." }, Texts("aether", seen, G()));
+    }
+
+    [Fact]
+    public void AQuestGateOpensWhenTheQuestIsFinished()
+    {
+        var seen = new HashSet<string> { "alphinaud" };
+        Assert.Equal(new[] { "A young scholar.", "Alphinaud Leveilleur" }, Texts("alphinaud", seen, G()));
+        Assert.Equal(new[] { "A young scholar.", "Grandson of Louisoix.", "Alphinaud Leveilleur" }, Texts("alphinaud", seen, G(quests: new uint[] { 66537 })));
+        Assert.Equal(4, Texts("alphinaud", seen, G(quests: new uint[] { 66537, QuestIds.Row(2000) })).Count);
+        // A gated layer doesn't wait for the name to be seen: the game opens it with the quest.
+        Assert.Equal(new[] { "Grandson of Louisoix." }, Texts("alphinaud", NoneSeen, G(quests: new uint[] { 66537 })));
+        Assert.True(X.Visible(E("alphinaud"), NoneSeen, G(quests: new uint[] { 66537 })));
+        Assert.False(X.Visible(E("alphinaud"), NoneSeen, G()));
+    }
+
+    [Fact]
+    public void AChapterGateOpensWhenTheChapterIsFinishedOrWithItsQuest()
+    {
+        Assert.Empty(Texts("the-ultimate-weapon", NoneSeen, G()));
+        Assert.Equal(new[] { "The synopsis." }, Texts("the-ultimate-weapon", NoneSeen, G(chapters: new uint[] { 42 })));
+        // With a quest too, the quest decides (the plugin knows every quest, not every chapter).
+        Assert.Equal(new[] { "With its quest." }, Texts("the-ultimate-weapon", NoneSeen, G(quests: new uint[] { 66537 })));
+        Assert.Empty(Texts("the-ultimate-weapon", NoneSeen, G(chapters: new uint[] { 43 })));
+        // Nothing to tell chapters by: shut, unless spoilers are off.
+        Assert.Empty(X.Layers(E("the-ultimate-weapon"), new List<string>(), NoneSeen, CodexGates.None(Spoilers.Gentle)));
+        Assert.Equal(2, X.Layers(E("the-ultimate-weapon"), new List<string>(), NoneSeen, CodexGates.None(Spoilers.Off)).Count);
+    }
+
+    [Fact]
+    public void AnExpansionGateOpensOnceItsReached()
+    {
+        Assert.Empty(Texts("bozja", NoneSeen, G(expansion: 4)));
+        Assert.Equal(new[] { "Notes." }, Texts("bozja", NoneSeen, G(expansion: 5)));
+        // An expansion gate of 0 is open from the start.
+        Assert.Equal(new[] { "A FATE in the desert." }, Texts("ul-dah", NoneSeen, G()));
+    }
+
+    [Fact]
+    public void ACompleteGateOpensWithTheWholeMainStory()
+    {
+        Assert.Empty(Texts("occult", NoneSeen, G(expansion: 5)));
+        Assert.Equal(new[] { "Lore." }, Texts("occult", NoneSeen, G(expansion: 5, complete: true)));
+    }
+
+    [Fact]
+    public void CollectionsAndSpoilerLayersOnlyWithSpoilersOff()
+    {
+        var seen = new HashSet<string> { "card-ifrit" };
+        Assert.Empty(Texts("card-ifrit", seen, G(Spoilers.Gentle, 5, true)));
+        Assert.False(X.Visible(E("card-ifrit"), seen, G(Spoilers.Gentle, 5, true)));
+        Assert.Empty(X.Ask("Ifrit", seen, G(Spoilers.Strict)));
+        Assert.Equal(new[] { "A card." }, Texts("card-ifrit", NoneSeen, G(Spoilers.Off)));
+        Assert.True(X.Visible(E("card-ifrit"), NoneSeen, G(Spoilers.Off)));
+        Assert.Single(X.Ask("Ifrit", NoneSeen, G(Spoilers.Off)));
+    }
+
+    [Fact]
+    public void SpoilersOffShowsEverything()
+    {
+        Assert.All(X.Entries, e => Assert.Equal(e.Layers.Count, X.Layers(e, new List<string>(), NoneSeen, G(Spoilers.Off)).Count));
+        Assert.All(X.Entries, e => Assert.True(X.Visible(e, NoneSeen, G(Spoilers.Off))));
+    }
+
+    [Fact]
+    public void ArrivalsUseTheWhisperElseTheFirstSightOpen()
+    {
+        Assert.Equal("Salt and sails.", X.Arrival("Limsa Lominsa Lower Decks"));
+        Assert.Equal("The Sapphire Avenue Exchange.", X.Arrival("Ul'dah - Steps of Nald"));
+        Assert.Equal("The Sapphire Avenue Exchange.", X.Arrival("Ul’dah - Steps of Nald", G()));
+        Assert.Null(X.Arrival("Gridania"));
+    }
+
+    [Fact]
+    public void WhosThatFindsAPersonByAnyWordOfTheirName()
+    {
+        Assert.Equal("alphinaud", X.Person("Alphinaud")!.Key);
+        Assert.Null(X.Person("Alisaie"));
+        var v1 = Codex.Read("""{ "version": 1, "entries": [ { "key": "h", "kind": "person", "name": "Ser Haurchefant Greystone", "layers": [] } ] }""");
+        Assert.Equal("h", v1.Person("Haurchefant")!.Key);
+        Assert.Null(v1.Person("Greyston"));
+    }
+
+    [Fact]
+    public void AByteOrderMarkIsFine()
+    {
+        var bytes = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(System.Text.Encoding.UTF8.GetBytes(File)).ToArray();
+        Assert.Equal(8, Codex.Read(bytes).Entries.Count);
+    }
+
+    /// <summary>The Codex from the game: about 5,000 entries (thousands of people), read and matched in good time.</summary>
+    [Fact]
+    public void AGameSizedCodexIsQuick()
+    {
+        var rng = new Random(7);
+        string Word(int i) => "N" + new string(Enumerable.Range(0, 6).Select(_ => (char)('a' + rng.Next(26))).ToArray()) + i;
+        var json = new System.Text.StringBuilder("{\"version\":2,\"entries\":[");
+        var names = new List<string>();
+        for (var i = 0; i < 5000; i++)
+        {
+            var name = i % 3 == 0 ? $"{Word(i)} {Word(i + 1)}" : Word(i);
+            names.Add(name);
+            if (i > 0) json.Append(',');
+            json.Append($"{{\"key\":\"k{i}\",\"kind\":\"{(i % 5 == 0 ? "place" : "person")}\",\"name\":\"{name}\",\"aliases\":[\"{Word(i)}\"],");
+            json.Append("\"layers\":[");
+            json.Append($"{{\"text\":\"{string.Join(' ', Enumerable.Repeat("Some words about them, as the game tells it.", 8))}\",\"source\":\"codex\"}},");
+            json.Append($"{{\"text\":\"A page behind a quest.\",\"source\":\"codex\",\"quest\":{66000 + i}}},");
+            json.Append("{\"text\":\"A title\",\"source\":\"title\"}]");
+            json.Append(i % 5 == 0 ? ",\"whisper\":\"A sentence.\"}" : "}");
+        }
+        json.Append("]}");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json.ToString());
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var codex = Codex.Read(bytes);
+        var read = clock.Elapsed;
+        Assert.Equal(5000, codex.Entries.Count);
+
+        // A late-game corpus: 900 finished quests' journals, a few hundred of them naming someone.
+        var corpus = Enumerable.Range(0, 900)
+            .Select(i => string.Join(' ', Enumerable.Repeat("You set out across the plains, and the wind was cold.", 12)) + (i % 3 == 0 ? $" {names[i * 5]} waits." : string.Empty))
+            .ToList();
+        clock.Restart();
+        var seen = codex.SeenKeys(corpus);
+        var matched = clock.Elapsed;
+        Assert.Equal(300, seen.Count);
+
+        clock.Restart();
+        var gates = new CodexGates(Spoilers.Strict, 5, false, q => q % 2 == 0);
+        var visible = codex.Entries.Count(e => codex.Visible(e, seen, gates));
+        var asked = codex.Ask("Na", seen, gates);
+        var listed = clock.Elapsed;
+        Assert.True(visible >= seen.Count);
+
+        Assert.True(read < TimeSpan.FromSeconds(2), $"read in {read.TotalMilliseconds:0} ms");
+        Assert.True(matched < TimeSpan.FromSeconds(3), $"matched in {matched.TotalMilliseconds:0} ms");
+        Assert.True(listed < TimeSpan.FromSeconds(1), $"listed in {listed.TotalMilliseconds:0} ms");
+        Console.WriteLine($"5,000 entries ({bytes.Length / 1024} KB): read {read.TotalMilliseconds:0} ms, seen {matched.TotalMilliseconds:0} ms, listed {listed.TotalMilliseconds:0} ms ({asked.Count} asked)");
     }
 }
 

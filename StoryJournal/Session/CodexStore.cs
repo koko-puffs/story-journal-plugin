@@ -1,6 +1,9 @@
 using System;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using StoryJournal.Core;
@@ -8,18 +11,20 @@ using StoryJournal.Core;
 namespace StoryJournal.Session;
 
 /// <summary>
-/// The Codex's words (<c>codex.json</c>, the site's: https://www.kokos-tools.com/story-journal/codex.json),
-/// kept in the plugin's config folder and fetched again once a day. Until it's fetched (or when the site
-/// can't be reached) the copy kept is used, or none: the Codex is then empty, and only the people and
-/// places the plugin saw itself show. Everything here runs on a worker.
+/// The Codex (<c>codex.json</c>, version 2, made from the game's files by kokos-tools:
+/// https://assets.kokos-tools.com/story/en/codex.json), kept in the plugin's config folder and fetched
+/// again once a day. Until it's fetched (or when it can't be reached) the copy kept is used, or none: the
+/// Codex is then empty, and only the people and places the plugin saw itself show. A copy kept from
+/// before (version 1, the site's hand-written Codex) is read until the new one comes, and the new one is
+/// fetched at once. Everything here runs on a worker.
 /// </summary>
 public sealed class CodexStore : IDisposable
 {
     private static readonly TimeSpan Every = TimeSpan.FromDays(1);
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 
-    /// <summary>The most a Codex may weigh (it's a few hundred KB at most).</summary>
-    private const long MaxBytes = 8 * 1024 * 1024;
+    /// <summary>The most a Codex may weigh, unpacked (thousands of entries: some megabytes).</summary>
+    private const long MaxBytes = 64 * 1024 * 1024;
 
     private readonly string file;
     private readonly HttpClient http;
@@ -53,9 +58,11 @@ public sealed class CodexStore : IDisposable
         try
         {
             if (!File.Exists(file)) return;
-            Swap(Codex.Read(File.ReadAllText(file)));
+            var read = Codex.Read(File.ReadAllBytes(file));
+            Swap(read);
             FetchedAt = File.GetLastWriteTimeUtc(file);
-            nextFetch = FetchedAt.Value + Every;
+            // The old Codex (version 1) is kept only until the new one comes: fetched at once.
+            nextFetch = read.FileVersion >= 2 ? FetchedAt.Value + Every : DateTime.MinValue;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -86,7 +93,11 @@ public sealed class CodexStore : IDisposable
         {
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(stopping);
             wait.CancelAfter(Timeout);
-            using var response = await http.GetAsync(SiteLink.CodexUrl, HttpCompletionOption.ResponseHeadersRead, wait.Token).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, SiteLink.CodexUrl);
+            // Packed on the way (a few MB of text): the shared connection doesn't unpack by itself, so it's done here.
+            request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("br"));
+            request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("gzip"));
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, wait.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Problem = $"The site didn't have the Codex ({(int)response.StatusCode}).";
@@ -97,16 +108,22 @@ public sealed class CodexStore : IDisposable
                 Problem = "The Codex is bigger than expected.";
                 return;
             }
-            var text = await response.Content.ReadAsStringAsync(wait.Token).ConfigureAwait(false);
+            // Read as a stream (the shared connection's buffer is for the site's small answers), at most MaxBytes unpacked.
+            var bytes = await ReadAll(response.Content, wait.Token).ConfigureAwait(false);
+            if (bytes == null)
+            {
+                Problem = "The Codex is bigger than expected.";
+                return;
+            }
             wait.Token.ThrowIfCancellationRequested();
-            var read = Codex.Read(text);
+            var read = Codex.Read(bytes);
             if (read.Entries.Count == 0)
             {
                 Problem = "The site's Codex is empty or couldn't be read.";
                 return;
             }
             var tmp = file + ".tmp";
-            await File.WriteAllTextAsync(tmp, text, wait.Token).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(tmp, bytes, wait.Token).ConfigureAwait(false);
             if (stopping.IsCancellationRequested) return;
             File.Move(tmp, file, true);
             Swap(read);
@@ -123,11 +140,33 @@ public sealed class CodexStore : IDisposable
             // Unloading: the shared connection is let go (just after this was stopped) while the fetch
             // was under way. Nothing to say, nothing written.
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or UnauthorizedAccessException)
         {
             Problem = "Couldn't reach the site for the Codex.";
             Services.Log.Debug(ex, "Story Journal couldn't fetch the Codex");
         }
+    }
+
+    /// <summary>The answer's body, unpacked (gzip or Brotli); null when it's over <see cref="MaxBytes"/>.</summary>
+    private static async Task<byte[]?> ReadAll(HttpContent content, CancellationToken cancel)
+    {
+        await using var raw = await content.ReadAsStreamAsync(cancel).ConfigureAwait(false);
+        var packing = content.Headers.ContentEncoding.LastOrDefault()?.Trim().ToLowerInvariant();
+        await using Stream body = packing switch
+        {
+            "gzip" => new GZipStream(raw, CompressionMode.Decompress, true),
+            "br" => new BrotliStream(raw, CompressionMode.Decompress, true),
+            _ => raw,
+        };
+        using var into = new MemoryStream();
+        var buffer = new byte[81920];
+        int n;
+        while ((n = await body.ReadAsync(buffer, cancel).ConfigureAwait(false)) > 0)
+        {
+            if (into.Length + n > MaxBytes) return null;
+            into.Write(buffer, 0, n);
+        }
+        return into.ToArray();
     }
 
     /// <summary>

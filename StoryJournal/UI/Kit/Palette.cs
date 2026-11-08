@@ -6,8 +6,8 @@ namespace StoryJournal.UI;
 /// <summary>
 /// Story Journal's colours, as the site has them (the design language of kokos-tools, with Story
 /// Journal's own accent): a black ground, near-black boxes with hairline edges, grey words, and one
-/// crystal blue (#6cb6ff) for what goes ahead, what's live and what's yours, on the mark's deeper
-/// tile blue (#2a6fd6); green for what's done, red for what went wrong.
+/// cherry red with a hint of pink (#f2425f) for what goes ahead, what's live and what's yours, on the
+/// mark's deeper tile red (#c21d3a); green for what's done, a softer coral red for what went wrong.
 /// </summary>
 public static class Palette
 {
@@ -31,21 +31,21 @@ public static class Palette
     public static readonly Vector4 Dim = Hex(0x76767e);                    // small mono labels, times
     public static readonly Vector4 Faint = Hex(0x5e5e66);                  // what hardly needs reading
 
-    // Crystal blue: what goes ahead, what's live, the tool's own icons.
-    public static readonly Vector4 Accent = Hex(0x6cb6ff);
-    public static readonly Vector4 AccentHover = Hex(0x8cc6ff);
-    public static readonly Vector4 AccentSoft = Hex(0xa6d3ff);             // blue words on the dark
-    public static readonly Vector4 AccentText = Hex(0xa6d3ff);             // blue notes and links
-    public static readonly Vector4 AccentDeep = Hex(0x2a6fd6);             // the mark's tile; a pressed blue button
-    public static readonly Vector4 AccentDim = Hex(0x2f5a85);              // a step under way, not lit
-    public static readonly Vector4 OnAccent = Hex(0x04121f);               // ink on the blue
-    public static readonly Vector4 AccentWash = Hex(0x080d12);             // a live box's fill (the blue at 7% on black)
-    public static readonly Vector4 AccentTile = Hex(0x10213a);             // the round wells behind its icons
-    public static readonly Vector4 AccentPicked = Rgba(108, 182, 255, 0.16f);
-    public static readonly Vector4 AccentRow = Rgba(108, 182, 255, 0.07f); // the row under way
-    public static readonly Vector4 AccentEdge = Hex(0x264059);             // a live box's edge (the blue at 35% on black)
+    // Cherry red, a hint of pink: what goes ahead, what's live, the tool's own icons.
+    public static readonly Vector4 Accent = Hex(0xf2425f);
+    public static readonly Vector4 AccentHover = Hex(0xf56c82);
+    public static readonly Vector4 AccentSoft = Hex(0xf78e9f);             // cherry words on the dark
+    public static readonly Vector4 AccentText = Hex(0xf78e9f);             // cherry notes and links
+    public static readonly Vector4 AccentDeep = Hex(0xc21d3a);             // the mark's tile; a pressed cherry button
+    public static readonly Vector4 AccentDim = Hex(0x7a2131);              // a step under way, not lit
+    public static readonly Vector4 OnAccent = Hex(0x1f040a);               // ink on the cherry
+    public static readonly Vector4 AccentWash = Hex(0x110507);             // a live box's fill (the cherry at 7% on black)
+    public static readonly Vector4 AccentTile = Hex(0x3a0a13);             // the round wells behind its icons
+    public static readonly Vector4 AccentPicked = Rgba(242, 66, 95, 0.16f);
+    public static readonly Vector4 AccentRow = Rgba(242, 66, 95, 0.07f);   // the row under way
+    public static readonly Vector4 AccentEdge = Hex(0x551721);             // a live box's edge (the cherry at 35% on black)
 
-    /// <summary>A theory's sealed wax and the quotes' quill: a warm parchment beside the blue.</summary>
+    /// <summary>A theory's sealed wax and the quotes' quill: a warm parchment beside the cherry.</summary>
     public static readonly Vector4 Quill = Hex(0xe8d6ad);
 
     // Gains and losses.

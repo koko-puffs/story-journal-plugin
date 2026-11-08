@@ -639,7 +639,7 @@ public sealed class Journal : IDisposable
     {
         var w = Whispers;
         if (w == Whispers.Quiet || (w == Whispers.Some && !first)) return;
-        if (Codex.Codex.Arrival(name) is not { } whisper) return;
+        if (Codex.Codex.Arrival(name, Story.Now?.Gates(Prefs.Spoilers)) is not { } whisper) return;
         arrivalWaiting = new ArrivalCard(name, region, first, whisper, DateTime.UtcNow);
     }
 
@@ -731,9 +731,16 @@ public sealed class Journal : IDisposable
     public WhoCard MakeWho(MetPerson met)
     {
         var codex = Codex.Codex;
-        var entry = codex.Find(met.Name) ?? codex.Entries.FirstOrDefault(e => e.Kind == "person" && e.Names.Any(n => codex.Mentions(n, met.Name)));
+        var entry = codex.Person(met.Name);
         var state = Story.Now;
-        var layers = entry != null && state != null ? codex.Layers(entry, state.Corpus, state.Seen, state.ExpansionReached, Prefs.Spoilers) : new List<CodexLayer>();
+        // Their first layer that shows: their title when it does (the game's ENpcResident.Title), else the first.
+        var layers = entry != null && state != null ? codex.Layers(entry, state.Corpus, state.Seen, state.Gates(Prefs.Spoilers)) : new List<CodexLayer>();
+        if (layers.FindIndex(l => l.Source == "title") is > 0 and var title)
+        {
+            var t = layers[title];
+            layers.RemoveAt(title);
+            layers.Insert(0, t);
+        }
         var notes = (Sync.Hello?.Notes ?? Array.Empty<SiteNote>()).Where(n => string.Equals(n.Subject, met.Name, StringComparison.OrdinalIgnoreCase)
             || (entry != null && entry.Names.Any(x => string.Equals(n.Subject, x, StringComparison.OrdinalIgnoreCase)))).ToList();
         var lines = sessionEvents.Count(e => e.Kind == EventKind.Line && string.Equals(Json.Str(e.Data["speaker"]), met.Name, StringComparison.OrdinalIgnoreCase));

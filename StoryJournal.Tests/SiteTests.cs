@@ -66,7 +66,7 @@ public class SiteLinkTests
     {
         Assert.Equal("https://upjcxjuuzxujqddtwehn.supabase.co/functions/v1/sj-plugin-photo", SiteLink.PhotoUrl);
         Assert.Equal("https://www.kokos-tools.com/story-journal?settings=story-journal", SiteLink.TokensUrl);
-        Assert.Equal("https://www.kokos-tools.com/story-journal/codex.json", SiteLink.CodexUrl);
+        Assert.Equal("https://assets.kokos-tools.com/story/en/codex.json", SiteLink.CodexUrl);
         Assert.Equal("https://www.kokos-tools.com/story-journal/recap", SiteLink.RecapUrl);
     }
 }

@@ -12,7 +12,7 @@ namespace StoryJournal.UI;
 /// </summary>
 internal static class Parts
 {
-    /// <summary>The mark: the tile blue rounded square (8/30 of its size) with the open book in white.</summary>
+    /// <summary>The mark: the tile red rounded square (8/30 of its size) with the open book in white.</summary>
     public static void Mark(Vector2 pos, float size)
     {
         var dl = Kit.Dl;

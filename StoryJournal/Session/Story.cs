@@ -29,10 +29,19 @@ public sealed record StoryState(
     string ProgressJson,
     IReadOnlyList<string> Corpus,
     IReadOnlySet<string> Seen,
-    int? NextIndex)
+    int? NextIndex,
+    IReadOnlySet<uint> QuestsDone)
 {
     /// <summary>The expansion reached (the current quest's, else the last with anything done).</summary>
     public int ExpansionReached => Progress.ExpansionNow?.Id ?? 0;
+
+    /// <summary>
+    /// The Codex's gates as this reading answers them: the quests finished (the main story's and those the
+    /// Codex waits for), a main-story chapter finished (its last quest on the road), the expansion reached,
+    /// the main story done.
+    /// </summary>
+    public CodexGates Gates(Spoilers spoilers) =>
+        new(spoilers, ExpansionReached, Progress.Complete, id => QuestsDone.Contains(QuestIds.Row(id)), Path.ChapterFinished);
 }
 
 /// <summary>What the worker is given: the framework thread's reading of the game, copied.</summary>
@@ -45,7 +54,8 @@ internal sealed record StoryInputs(
     string Job,
     IReadOnlyList<string> People,
     IReadOnlyList<string> Places,
-    Codex Codex);
+    Codex Codex,
+    IReadOnlySet<uint> GateDone);
 
 /// <summary>
 /// The main story, kept up to date: the catalog read once from the sheets when the plugin loads (on a
@@ -64,6 +74,8 @@ public sealed class Story : IDisposable
     private int generation;
     private string signature = string.Empty;
     private HashSet<uint> done = new();
+    private HashSet<uint> gateDone = new();
+    private int gateVersion = -1;
     private DateTime doneReadAt = DateTime.MinValue;
     private bool doneStale = true;
 
@@ -113,6 +125,7 @@ public sealed class Story : IDisposable
         Version++;
         signature = string.Empty;
         done = new HashSet<uint>();
+        gateDone = new HashSet<uint>();
         doneStale = true;
     }
 
@@ -133,19 +146,22 @@ public sealed class Story : IDisposable
             Version++;
         }
         if (Catalog is not { } catalog) return;
-        if (doneStale || now - doneReadAt > TimeSpan.FromMinutes(1))
+        if (doneStale || now - doneReadAt > TimeSpan.FromMinutes(1) || codexVersion != gateVersion)
         {
             done = Quests.Done(catalog.Order.Select(q => q.Id));
+            // The quests the Codex's layers wait for (side quests among them): a bit each, as the main story's.
+            gateDone = Quests.Done(codex.GateQuests.Where(q => !catalog.Contains(q)));
+            gateVersion = codexVersion;
             doneReadAt = now;
             doneStale = false;
             DoneVersion++;
         }
         var (scenario, _) = Quests.Scenario();
-        var sig = string.Join('|', done.Count, done.Sum(d => (long)d), string.Join(',', accepted.OrderBy(a => a.Key).Select(a => $"{a.Key}:{a.Value}")),
+        var sig = string.Join('|', done.Count, done.Sum(d => (long)d), gateDone.Count, gateDone.Sum(d => (long)d), string.Join(',', accepted.OrderBy(a => a.Key).Select(a => $"{a.Key}:{a.Value}")),
             scenario, player.StartTown, player.Level, player.Job, people.Count, places.Count, codexVersion);
         if (sig == signature || refreshing is { IsCompleted: false }) return;
         signature = sig;
-        var inputs = new StoryInputs(done.ToHashSet(), new Dictionary<uint, int>(accepted), scenario, player.StartTown, player.Level, player.Job, people.ToList(), places.ToList(), codex);
+        var inputs = new StoryInputs(done.ToHashSet(), new Dictionary<uint, int>(accepted), scenario, player.StartTown, player.Level, player.Job, people.ToList(), places.ToList(), codex, gateDone.ToHashSet());
         var gen = generation;
         refreshing = Task.Run(() =>
         {
@@ -208,7 +224,8 @@ public sealed class Story : IDisposable
         corpus.AddRange(i.Places);
         var seen = i.Codex.SeenKeys(corpus);
         var next = path.After(current) is { } after ? path.IndexOf(after.Id) : (int?)null;
-        return new StoryState(catalog, path, current, taken, sequence, journal, objectives, previousLine, people, progress, json, corpus, seen, next);
+        var questsDone = i.Done.Concat(i.GateDone).ToHashSet();
+        return new StoryState(catalog, path, current, taken, sequence, journal, objectives, previousLine, people, progress, json, corpus, seen, next, questsDone);
     }
 
     /// <summary>

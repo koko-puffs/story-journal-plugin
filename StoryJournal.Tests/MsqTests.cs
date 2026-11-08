@@ -167,6 +167,20 @@ public class MsqTests
     }
 
     [Fact]
+    public void AChapterIsFinishedWithItsLastQuestOnTheRoad()
+    {
+        var story = Story();
+        // The Codex's chapter gate: chapter 2 ends with D; C done isn't enough.
+        var path = story.Path(Set(G1, G2, Meet, A, B, Gca, C));
+        Assert.True(path.ChapterFinished(1));
+        Assert.False(path.ChapterFinished(2));
+        Assert.True(story.Path(Set(G1, G2, Meet, A, B, Gca, C, D)).ChapterFinished(2));
+        Assert.False(path.ChapterFinished(3));
+        Assert.False(path.ChapterFinished(99));
+        Assert.False(path.ChapterFinished(0));
+    }
+
+    [Fact]
     public void DutiesAheadCountTheCurrentQuestAsOne()
     {
         var path = Story().Path(Set(G1, G2, Meet), Set(A));

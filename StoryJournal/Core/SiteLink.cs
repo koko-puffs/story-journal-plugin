@@ -27,8 +27,8 @@ public static class SiteLink
     /// <summary>The longer recap (the Welcome back card's button).</summary>
     public const string RecapUrl = "https://www.kokos-tools.com/story-journal/recap";
 
-    /// <summary>The Codex's words, shared by the site and the plugin.</summary>
-    public const string CodexUrl = "https://www.kokos-tools.com/story-journal/codex.json";
+    /// <summary>The Codex, made from the game's files by kokos-tools and shared by the site and the plugin (version 2).</summary>
+    public const string CodexUrl = "https://assets.kokos-tools.com/story/en/codex.json";
 
     /// <summary>The edge function that takes the plugin's photos.</summary>
     public const string PhotoUrl = SupabaseUrl + "/functions/v1/sj-plugin-photo";
