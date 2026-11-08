@@ -110,6 +110,8 @@ public sealed class MsqCatalog
                 foreach (var id in ids) alternatives[id] = ids;
             }
         StartPaths = Order.Where(q => q.StartPath > 0).Select(q => q.StartPath).Distinct().OrderBy(p => p).ToList();
+        OpeningSize = StartPaths.Count == 0 ? 0 : StartPaths.Max(p =>
+            Order.Where(q => q.StartPath == p).Select(q => Alternatives(q.Id) is { Count: > 0 } a ? a[0] : q.Id).Distinct().Count());
         chapters = (chapterRows ?? Array.Empty<MsqChapter>()).GroupBy(c => c.Id).ToDictionary(g => g.Key, g => g.First());
         expansions = (expansionRows ?? Array.Empty<MsqExpansion>()).GroupBy(e => e.Id).ToDictionary(g => g.Key, g => g.First());
         this.townPaths = townPaths?.Where(t => StartPaths.Contains(t.Value)).ToDictionary(t => t.Key, t => t.Value) ?? new Dictionary<uint, int>();
@@ -126,6 +128,13 @@ public sealed class MsqCatalog
 
     /// <summary>The starting cities' opening paths there are (<see cref="MsqQuest.StartPath"/> 1, 2, 3).</summary>
     public IReadOnlyList<int> StartPaths { get; }
+
+    /// <summary>
+    /// The longest opening as a road counts it (each set of alternatives once): the indexes the openings
+    /// take (0 to this less 1), so the main line's first quest has the same index whichever city began
+    /// (0 when there are no openings).
+    /// </summary>
+    public int OpeningSize { get; }
 
     public int Count => Order.Count;
 
@@ -397,13 +406,19 @@ public sealed class MsqPath
         this.off = off;
         StartPath = startPath;
         Quests = catalog.Order.Where(q => !off.Contains(q.Id)).ToList();
+        // Each path's road quests counted on their own: an opening's from 0, the main line's from the
+        // longest opening's size.
         before = new int[catalog.Order.Count];
-        var count = 0;
+        var counts = new Dictionary<int, int>();
         for (var i = 0; i < before.Length; i++)
         {
-            before[i] = count;
-            if (!off.Contains(catalog.Order[i].Id)) count++;
+            var q = catalog.Order[i];
+            var path = q.StartPath > 0 ? q.StartPath : 0;
+            counts.TryGetValue(path, out var count);
+            before[i] = (path > 0 ? 0 : catalog.OpeningSize) + count;
+            if (!off.Contains(q.Id)) counts[path] = count + 1;
         }
+        MainLineIndexEnd = catalog.OpeningSize + counts.GetValueOrDefault(0);
         // An alternative off the road is where its place on the road is (the first of them: they're side by side).
         for (var i = 0; i < before.Length; i++)
         {
@@ -411,6 +426,9 @@ public sealed class MsqPath
             if (off.Contains(id) && catalog.Alternatives(id) is { Count: > 0 } group) before[i] = before[catalog.Position(group[0])];
         }
     }
+
+    /// <summary>The index after the main line's last quest on the road (the finished story's).</summary>
+    private int MainLineIndexEnd { get; }
 
     /// <summary>The starting city's opening the road takes (<see cref="MsqCatalog.OwnStartPath"/>; 0: every one, it couldn't be told).</summary>
     public int StartPath { get; }
@@ -440,18 +458,20 @@ public sealed class MsqPath
     }
 
     /// <summary>
-    /// A quest's index: how many quests on the road come before it in the story's order (-1: not a
-    /// main-story quest). A quest off the road (an alternative not taken) has the index of its place.
-    /// The same for the same quests done: what comes before the current quest is done, or settled by
-    /// what's done (one of each set of alternatives).
+    /// A quest's index (-1: not a main-story quest). In an opening: how many of that opening's quests on
+    /// the road come before it (0 to <see cref="MsqCatalog.OpeningSize"/> less 1). On the main line:
+    /// <see cref="MsqCatalog.OpeningSize"/> and how many main-line quests on the road come before it, so
+    /// a main-line quest has the same index whichever city began. A quest off the road (an alternative
+    /// not taken) has the index of its place. The same for the same quests done: what comes before the
+    /// current quest is done, or settled by what's done (one of each set of alternatives).
     /// </summary>
     public int IndexOf(uint id) => catalog.Position(id) is var at && at >= 0 ? before[at] : -1;
 
     /// <summary>
-    /// The number every spoiler check compares: the current quest's index on the road
-    /// (<see cref="IndexOf"/>); the road's whole count once the story is finished.
+    /// The number every spoiler check compares: the current quest's index (<see cref="IndexOf"/>); once
+    /// the story is finished, the index just past the main line's last quest.
     /// </summary>
-    public int Index(MsqQuest? current) => current == null ? (Complete ? Total : 0) : IndexOf(current.Id);
+    public int Index(MsqQuest? current) => current == null ? (Complete ? MainLineIndexEnd : 0) : IndexOf(current.Id);
 
     /// <summary>The quests not done on the road from <paramref name="current"/> on (it first).</summary>
     public IEnumerable<MsqQuest> Remaining(MsqQuest? current)

@@ -286,7 +286,8 @@ public class MsqTests
 /// the game has them (their real ids, orders and prerequisites, the chain trimmed): the three starting
 /// cities' openings (each with its class variants of "Close to Home" sharing an order), the main line's
 /// two "Call of the Sea" (one for Ul'dah, one for Gridania and Limsa), the three Grand Companies and
-/// their next quests, Heavensward's start and Dawntrail's end.
+/// their next quests, Heavensward's start and Dawntrail's end. Ul'dah's opening is the longest (as in the
+/// game): five here, so the main line's indexes start at 5 for every city.
 /// </summary>
 public class MsqGameOrderTests
 {
@@ -295,7 +296,7 @@ public class MsqGameOrderTests
     // Gridania's (path 2).
     private const uint GComing = 65575, GHome1 = 65621, GHome2 = 65659, GHome3 = 65660, GBannock = 65564, GEnvoy = 66043;
     // Ul'dah's (path 3).
-    private const uint UComing = 66130, UHome1 = 66104, UHome2 = 66105, UHome3 = 66106, URebuild = 66131, UEnvoy = 66064;
+    private const uint UComing = 66130, UHome1 = 66104, UHome2 = 66105, UHome3 = 66106, URebuild = 66131, UNothing = 66207, UEnvoy = 66064;
     // The main line (path 0).
     private const uint SeaU = 66209, SeaGL = 66210, Pirates = 65781, Hero = 66047;
     private const uint CompanyTa = 66216, CompanyMa = 66217, CompanyIf = 66218, Wood = 66219, TillSea = 66220, Coin = 66221, Sylph = 66049;
@@ -340,7 +341,8 @@ public class MsqGameOrderTests
         Q(UHome2, "Close to Home", 1, 2, 3, new[] { UComing }),
         Q(UHome3, "Close to Home", 1, 2, 3, new[] { UComing }),
         Q(URebuild, "We Must Rebuild", 4, 3, 3, new[] { UHome1, UHome2, UHome3 }, any: true),
-        Q(UEnvoy, "The Ul'dahn Envoy", 14, 28, 3, new[] { URebuild }),
+        Q(UNothing, "Nothing to See Here", 4, 4, 3, new[] { URebuild }),
+        Q(UEnvoy, "The Ul'dahn Envoy", 14, 28, 3, new[] { UNothing }),
     };
 
     // The Town rows: 1 Limsa Lominsa, 2 Gridania, 3 Ul'dah, as the game has them (ScenarioType 1 L, 2 G, 3 U).
@@ -363,10 +365,12 @@ public class MsqGameOrderTests
         {
             LComing, LHome1, LHome2, LSummerford, LEnvoy,
             GComing, GHome1, GHome2, GHome3, GBannock, GEnvoy,
-            UComing, UHome1, UHome2, UHome3, URebuild, UEnvoy,
+            UComing, UHome1, UHome2, UHome3, URebuild, UNothing, UEnvoy,
             SeaU, SeaGL, Pirates, Hero, CompanyTa, CompanyMa, CompanyIf, Wood, TillSea, Coin, Sylph, Dawn, Ishgard, Sights, Wind1, Wind2, Wind3,
         }, story.Order.Select(q => q.Id).ToArray());
         Assert.Equal(new[] { 1, 2, 3 }, story.StartPaths);
+        // The longest opening, each "Close to Home" once: Ul'dah's.
+        Assert.Equal(5, story.OpeningSize);
         Assert.Equal(new[] { CompanyTa, CompanyMa, CompanyIf }, story.Alternatives(CompanyMa));
         Assert.Equal(new[] { SeaU, SeaGL }, story.Alternatives(QuestIds.Short(SeaGL)));
         Assert.Empty(story.Alternatives(Pirates));
@@ -399,7 +403,9 @@ public class MsqGameOrderTests
         Assert.Equal(16, path.Total);
         Assert.Equal(GComing, path.Current(0)!.Id);
         Assert.Equal(0, path.Index(path.Current(0)));
-        Assert.Equal(4, path.IndexOf(SeaGL));
+        Assert.Equal(3, path.IndexOf(GEnvoy));
+        // The main line starts at the longest opening's size, not after Gridania's four.
+        Assert.Equal(5, path.IndexOf(SeaGL));
     }
 
     [Fact]
@@ -415,7 +421,7 @@ public class MsqGameOrderTests
         Assert.False(path.OnPath(SeaGL));
         Assert.Equal(URebuild, path.Current(QuestIds.Short(URebuild))!.Id);
         Assert.Equal(2, path.Index(path.Current(0)));
-        Assert.Equal(16, path.Total);
+        Assert.Equal(17, path.Total);
         Assert.Equal(2, path.Done);
     }
 
@@ -433,7 +439,7 @@ public class MsqGameOrderTests
         // Nothing to tell by: every opening counts (4 each), and one of each of the main line's alternatives.
         var fresh = story.Path(Set());
         Assert.Equal(0, fresh.StartPath);
-        Assert.Equal(4 + 4 + 4 + 12, fresh.Total);
+        Assert.Equal(4 + 4 + 5 + 12, fresh.Total);
         Assert.Equal(0, fresh.Index(fresh.Current(0)));
     }
 
@@ -452,33 +458,83 @@ public class MsqGameOrderTests
         // Close to Home's other class variant is off: the quest after it is done.
         Assert.False(path.OnPath(LHome1));
         Assert.Equal(16, path.Total);
-        Assert.Equal(7, path.Index(path.Current(QuestIds.Short(CompanyMa))));
+        Assert.Equal(8, path.Index(path.Current(QuestIds.Short(CompanyMa))));
         Assert.Equal(TillSea, path.After(path.Current(CompanyMa))!.Id);
 
         // Finished: the next quest's index is one on, and the event tells the finished one's.
         var after = story.Path(Set(done.Append(CompanyMa).ToArray()), null, 1);
         Assert.Equal(TillSea, after.Current(0)!.Id);
-        Assert.Equal(8, after.Index(after.Current(0)));
-        Assert.Equal(7, story.Finished(CompanyMa, after, Array.Empty<string>(), Array.Empty<string>())!.MsqIndex);
+        Assert.Equal(9, after.Index(after.Current(0)));
+        Assert.Equal(8, story.Finished(CompanyMa, after, Array.Empty<string>(), Array.Empty<string>())!.MsqIndex);
     }
+
+    // Each city's player through A Hero in the Making (their own Call of the Sea, a class's Close to Home).
+    private static readonly uint[] LimsaToHero = { LComing, LHome1, LSummerford, LEnvoy, SeaGL, Pirates, Hero };
+    private static readonly uint[] UldahToHero = { UComing, UHome3, URebuild, UNothing, UEnvoy, SeaU, Pirates, Hero };
 
     [Fact]
     public void TheIndexIsTheSameForTheSameQuestsDone()
     {
         var story = Story();
-        var done = Set(GridaniaToHero);
-        foreach (var started in new[] { Set(), Set(CompanyTa), Set(CompanyMa), Set(CompanyIf) })
-            foreach (var town in new uint[] { 0, 1, 2, 3 })
-            {
-                var path = story.Path(done, started, story.StartPathOf(town));
-                Assert.Equal(2, path.StartPath);
-                Assert.Equal(16, path.Total);
-                Assert.Equal(7, path.Index(path.Current(0)));
-                // The scenario tree's quest, whichever Grand Company's it is.
-                foreach (var gc in new[] { CompanyTa, CompanyMa, CompanyIf })
-                    Assert.Equal(7, path.Index(path.Current(QuestIds.Short(gc))));
-                Assert.Equal(8, path.IndexOf(Wood));
-            }
+        foreach (var (own, city, total) in new[] { (1, LimsaToHero, 16), (2, GridaniaToHero, 16), (3, UldahToHero, 17) })
+            foreach (var started in new[] { Set(), Set(CompanyTa), Set(CompanyMa), Set(CompanyIf) })
+                foreach (var town in new uint[] { 0, 1, 2, 3 })
+                {
+                    var path = story.Path(Set(city), started, story.StartPathOf(town));
+                    Assert.Equal(own, path.StartPath);
+                    Assert.Equal(total, path.Total);
+                    Assert.Equal(8, path.Index(path.Current(0)));
+                    // The scenario tree's quest, whichever Grand Company's it is.
+                    foreach (var gc in new[] { CompanyTa, CompanyMa, CompanyIf })
+                        Assert.Equal(8, path.Index(path.Current(QuestIds.Short(gc))));
+                    Assert.Equal(9, path.IndexOf(Wood));
+                }
+    }
+
+    [Fact]
+    public void EveryCitysPlayerHasTheSameIndexAtTheSameMainLineQuest()
+    {
+        var story = Story();
+        var roads = new[]
+        {
+            story.Path(Set(LimsaToHero[..^1]), Set(Hero), 1),
+            story.Path(Set(GridaniaToHero[..^1]), Set(Hero), 2),
+            story.Path(Set(UldahToHero[..^1]), Set(Hero), 3),
+        };
+        foreach (var path in roads)
+        {
+            Assert.Equal(Hero, path.Current(QuestIds.Short(Hero))!.Id);
+            Assert.Equal(7, path.Index(path.Current(Hero)));
+            Assert.Equal(13, path.IndexOf(Sights));
+            Assert.Equal(16, path.IndexOf(Wind3));
+        }
+        // Though their roads' counts differ (Ul'dah's opening is a quest longer).
+        Assert.Equal(new[] { 16, 16, 17 }, roads.Select(p => p.Total).ToArray());
+        Assert.Equal(new[] { 6, 6, 7 }, roads.Select(p => p.Done).ToArray());
+    }
+
+    [Fact]
+    public void EveryOpeningsIndexesComeBeforeTheMainLines()
+    {
+        var story = Story();
+        foreach (var (own, first, last) in new[] { (1, LComing, LEnvoy), (2, GComing, GEnvoy), (3, UComing, UEnvoy) })
+        {
+            var path = story.Path(Set(), null, own);
+            var mainFirst = path.Quests.First(q => q.StartPath == 0);
+            Assert.Equal(0, path.IndexOf(first));
+            Assert.True(path.IndexOf(last) < story.OpeningSize);
+            Assert.True(path.IndexOf(last) < path.IndexOf(mainFirst.Id));
+            Assert.Equal(story.OpeningSize, path.IndexOf(mainFirst.Id));
+            // Every opening quest on the road below every main-line one.
+            var openings = path.Quests.Where(q => q.StartPath > 0).Select(q => path.IndexOf(q.Id)).ToList();
+            Assert.Equal(Enumerable.Range(0, openings.Count), openings);
+        }
+        Assert.Equal(3, story.Path(Set(), null, 1).IndexOf(LEnvoy));
+        Assert.Equal(4, story.Path(Set(), null, 3).IndexOf(UEnvoy));
+        // Nothing to tell the city by: each opening still counts from 0.
+        var fresh = story.Path(Set());
+        Assert.Equal(new[] { 0, 0, 0 }, new[] { LComing, GComing, UComing }.Select(fresh.IndexOf).ToArray());
+        Assert.Equal(5, fresh.IndexOf(SeaU));
     }
 
     [Fact]
@@ -489,7 +545,7 @@ public class MsqGameOrderTests
         var path = story.Path(done, Set(Wind2), 2);
         var current = path.Current(Wind2)!;
         Assert.Equal(Wind2, current.Id);
-        Assert.Equal(14, path.Index(current));
+        Assert.Equal(15, path.Index(current));
         Assert.Equal(new[]
         {
             new ExpansionCount(0, "A Realm Reborn", 11, 11),
@@ -501,7 +557,9 @@ public class MsqGameOrderTests
         var finished = story.Path(Set(done.Concat(new[] { Wind2, Wind3 }).ToArray()), null, 2);
         Assert.True(finished.Complete);
         Assert.Null(finished.Current(0));
-        Assert.Equal(16, finished.Index(null));
+        // Past the main line's last quest: the same for every city.
+        Assert.Equal(17, finished.Index(null));
+        Assert.Equal(16, finished.Total);
     }
 
     [Fact]

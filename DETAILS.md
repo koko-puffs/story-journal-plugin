@@ -243,12 +243,24 @@ left out of the counts:
   the Sea" is Gridania's, not Ul'dah's), else the first by id. So each set of alternatives counts
   once.
 
-A quest's **index**, the number every spoiler check on the site compares, is how many quests on the
-player's road come before it in the catalog's order (an alternative off the road has its set's). It's
-the same for the same quests done: what comes before the current quest is done, or settled by what's
-done (the opening, one of each set of alternatives), whatever is taken or the town read. It isn't
-quite the same for every player at the same main-line quest: the openings differ in length (Limsa's
-and Gridania's count 23, Ul'dah's 24, each "Close to Home" once).
+A quest's **index**, the number every spoiler check on the site compares, counts the opening as a
+fixed size, so a main-line quest has the same index whichever city a player began in:
+
+- in an opening, how many of that opening's quests on the player's road come before it (0 to its
+  length less 1);
+- on the main line, the **opening size** plus how many main-line quests on the road come before it.
+  The opening size is the longest opening as a road counts it (each set of alternatives once),
+  worked out from the catalog (`MsqCatalog.OpeningSize`): today Ul'dah's 24 (Limsa's and Gridania's
+  are 23). So no opening's index reaches the main line's first (24 today, for every city);
+- once the story is finished, the index just past the main line's last quest;
+- an alternative off the road has its set's index.
+
+It's the same for the same quests done: what comes before the current quest is done, or settled by
+what's done (the opening, one of each set of alternatives), whatever is taken or the town read. The
+counts (`msq.done`, `msq.total`, the expansions' and chapters') are the player's own road's, so
+Ul'dah's total is one more than Limsa's or Gridania's. With no openings in the catalog (the journal's
+section was read) the opening size is 0 and the index is simply how many quests on the road come
+before it.
 
 **Where the player is**: QuestManager's quest log (quests and their steps) and `IsQuestComplete` for
 each main-story quest (read on the framework thread when the log changes, and once a minute), and
@@ -474,10 +486,10 @@ notes and theories; the pace lock.
 - The main story is in the game's own order (the scenario tree's): your starting city's opening, then
   the main line. The other cities' openings aren't counted, and of quests that are alternatives of
   each other (the class variants of "Close to Home", the two "Call of the Sea", the Grand Companies'
-  quests) only the one you did, or will do, is. A quest's index is how many quests on your road come
-  before it, the same for the same quests done. If a patch makes the game's order unreadable, the
+  quests) only the one you did, or will do, is. A quest's index counts the opening as a fixed size
+  (the longest opening's), so a main-line quest has the same index whichever city you began in, and
+  it's the same for the same quests done. If a patch makes the game's order unreadable, the
   order is worked out from the quests' prerequisites instead.
-
 - The current quest's journal, at its last step (ready to hand in), stops at the step's own entry:
   the entry written for handing it in only shows once it's finished.
 - The main story's reading is measured as the site measures it and made to fit (chapters first); if
