@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using Dalamud.Game;
 using Lumina.Excel;
 using Lumina.Excel.Sheets;
 using StoryJournal.Core;
@@ -14,8 +15,12 @@ namespace StoryJournal.Game;
 /// <list type="bullet">
 /// <item>The quests: the <c>ScenarioTree</c> rows that are quests (a row's id is its quest's); should
 /// that give too few, the quests of the Main Scenario section of the journal instead.</item>
-/// <item>Their order's inputs: <c>PreviousQuest</c> (and <c>PreviousQuestJoin</c> 2 read as "any one
+/// <item>Their order: the scenario tree's <c>Unknown2</c> (the game's order, shared by alternatives) and
+/// <c>Type</c> (0 the main line; 1, 2, 3 the starting cities' openings); and, for the road's rules and
+/// should that order be unusable, <c>PreviousQuest</c> (and <c>PreviousQuestJoin</c> 2 read as "any one
 /// will do"), <c>QuestLock</c>, the expansion, the level.</item>
+/// <item>Which opening each starting city (<c>Town</c>) begins: the <c>ScenarioType</c> row whose letter
+/// starts the town's English name (L, G, U: Limsa Lominsa 1, Gridania 2, Ul'dah 3).</item>
 /// <item>Chapters: the scenario tree's <c>QuestChapter</c> (or the quest's own <c>QuestChapter</c> row),
 /// its <c>Redo</c> row's <c>QuestRedoChapterUI.ChapterName</c>; when that names too few, a chapter starts
 /// at each <c>QuestRedoChapterUI.Quest</c> and runs on to the next.</item>
@@ -32,10 +37,13 @@ public static class MsqReader
     {
         var questSheet = Services.Data.GetExcelSheet<Quest>();
         var rows = new Dictionary<uint, (Quest Quest, uint ChapterRow)>();
+        var places = new Dictionary<uint, (int Order, int Path)>();
         foreach (var tree in Services.Data.GetExcelSheet<ScenarioTree>())
         {
             if (questSheet.GetRowOrDefault(tree.RowId) is not { } q || q.Name.IsEmpty) continue;
             rows[q.RowId] = (q, tree.QuestChapter.RowId);
+            var path = tree.Type.RowId is >= 1 and <= 3 ? (int)tree.Type.RowId : 0;
+            places[q.RowId] = (tree.Unknown2, path);
         }
         var source = "the scenario tree";
         if (rows.Count < Expected)
@@ -46,6 +54,7 @@ public static class MsqReader
             if (fromJournal.Count > rows.Count)
             {
                 rows = fromJournal;
+                places.Clear();
                 source = "the journal's Main Scenario section";
             }
         }
@@ -74,14 +83,16 @@ public static class MsqReader
             {
                 Services.Log.Debug(ex, $"Story Journal: no chapter for quest {q.RowId}");
             }
-            quests.Add(Read(q, chapter));
+            var (order, startPath) = places.TryGetValue(q.RowId, out var at) ? at : (0, 0);
+            quests.Add(Read(q, chapter) with { Order = order, StartPath = startPath });
         }
 
         var expansions = new List<MsqExpansion>();
         foreach (var ex in Services.Data.GetExcelSheet<ExVersion>())
             if (!ex.Name.IsEmpty) expansions.Add(new MsqExpansion((int)ex.RowId, ex.Name.ExtractText()));
 
-        var catalog = new MsqCatalog(quests, chapters.Values, expansions);
+        var towns = TownPaths();
+        var catalog = new MsqCatalog(quests, chapters.Values, expansions, towns);
         if (named < catalog.Count / 2)
         {
             // Too few named through the chapter rows: chapters start at each chapter's own quest instead.
@@ -103,12 +114,43 @@ public static class MsqReader
                     }
                     rebuilt.Add(q with { Chapter = current });
                 }
-                catalog = new MsqCatalog(rebuilt, chapters.Values, expansions);
+                catalog = new MsqCatalog(rebuilt, chapters.Values, expansions, towns);
                 source += ", chapters from where each begins";
             }
         }
-        Services.Log.Information($"Story Journal read the main story from {source}: {catalog.Count} quests, {chapters.Count} chapters, {expansions.Count} expansions");
+        var ordering = catalog.GameOrder ? "the game's order" : "the order of prerequisites (the game's order unusable)";
+        Services.Log.Information($"Story Journal read the main story from {source}: {catalog.Count} quests, {chapters.Count} chapters, {expansions.Count} expansions, in {ordering}; starting cities' openings: {string.Join(", ", towns.Select(t => $"town {t.Key} → {t.Value}"))}");
         return catalog;
+    }
+
+    /// <summary>
+    /// Which opening (<c>ScenarioType</c> 1, 2, 3, a letter each: L, G, U) each starting city (<c>Town</c>)
+    /// begins: the one town whose English name starts with the type's letter. A type no single town
+    /// matches is left out (the road is then told from the quests done).
+    /// </summary>
+    private static Dictionary<uint, int> TownPaths()
+    {
+        var map = new Dictionary<uint, int>();
+        try
+        {
+            var towns = Services.Data.GetExcelSheet<Town>(ClientLanguage.English)
+                .Select(t => (t.RowId, Name: t.Name.ExtractText().Trim()))
+                .Where(t => t.RowId != 0 && t.Name.Length > 0)
+                .ToList();
+            foreach (var type in Services.Data.GetExcelSheet<ScenarioType>())
+            {
+                if (type.RowId is < 1 or > 3) continue;
+                var letter = type.Type.ExtractText().Trim();
+                if (letter.Length != 1) continue;
+                var matches = towns.Where(t => t.Name.StartsWith(letter, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (matches.Count == 1) map[matches[0].RowId] = (int)type.RowId;
+            }
+        }
+        catch (Exception ex)
+        {
+            Services.Log.Debug(ex, "Story Journal couldn't tell which opening each starting city begins");
+        }
+        return map;
     }
 
     private static string ChapterName(QuestRedoChapterUI ui) => JournalText.Tidy(ui.ChapterName.ExtractText());

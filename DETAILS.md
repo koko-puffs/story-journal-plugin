@@ -158,7 +158,7 @@ written but the baseline keeps up, so resuming doesn't write what happened meanw
 | Kind | How it's noticed | Data |
 | --- | --- | --- |
 | `accept` | a new id in QuestManager's quest log (`NormalQuests`) | `{ id, name, msq }` |
-| `quest` | an id gone from the log that `IsQuestComplete` says is done (checked for 10 s: the game may mark it a moment after; gone and not done is abandoned, not written); and, as a backstop, a main-story quest newly done in the reading of the quests done (taken and finished between two looks at the log), each written once (`Finishes`). Whether it's the main story's, its index and chapter come from the catalog and the quests done read then, so they're right before the story's first reading after login; before the catalog's read, it waits for it | `{ id, name, level, msq, msqIndex?, expansion, chapter?, chapterDone?, expansionDone?, place, journal, people }`: the journal is the quest's whole text sheet (made on a worker), cut to 12 entries of 1,200 letters (the first and the last eleven, so the ending the recaps read is kept); `people` the people met named in it |
+| `quest` | an id gone from the log that `IsQuestComplete` says is done (checked for 10 s: the game may mark it a moment after; gone and not done is abandoned, not written); and, as a backstop, a main-story quest newly done in the reading of the quests done (taken and finished between two looks at the log), each written once (`Finishes`). Whether it's the main story's, its index (on the road) and chapter come from the catalog, the quests done read then and the starting city, so they're right before the story's first reading after login; before the catalog's read, it waits for it | `{ id, name, level, msq, msqIndex?, expansion, chapter?, chapterDone?, expansionDone?, place, journal, people }`: the journal is the quest's whole text sheet (made on a worker), cut to 12 entries of 1,200 letters (the first and the last eleven, so the ending the recaps read is kept); `people` the people met named in it |
 | `cutscene` | `OccupiedInCutSceneEvent`, `WatchingCutscene78` or `WatchingCutscene`, from rise to fall (3 s at least) | `{ questId?, place, seconds }`: the current main-story quest when it's taken |
 | `zone` | a new territory once the loading screen's gone (not inside a duty) | `{ id, name, region, first }`: `first` is first **since the journal began** for this character (its visited set, `CharacterMemory.Visited`, in the plugin's config, empty when the journal starts mid-story), not first ever |
 | `duty` | IDutyState's start (or being in a duty without it: from then) and completion; written when you leave | `{ id, name, type, cleared, seconds }` (`id` the ContentFinderCondition row; `type` in English whatever the client's language, from its `ContentType` row: "dungeon", "guildhest", "trial", "raid", "ultimate raid", "deep dungeon"…, "duty" for one not known; the site reads "dungeon", "trial", "raid" and "guildhest" in it) |
@@ -194,11 +194,25 @@ code works in Glamour Studio's).
 - The quests: the `ScenarioTree` rows that are quests (a row's id is its quest's). Should that give
   fewer than 300 (it isn't what was expected), the quests whose journal genre is in the journal's
   **Main Scenario** section (section 0, or one so named) instead. The log says which was used.
-- Their order: each quest after the quests it needs (`PreviousQuest`, only those in the catalog),
-  then by expansion, level and id. Where `PreviousQuestJoin` is 2 any one of the prerequisites is
-  enough (read as "at least one"; 1 as "all"). A loop (there shouldn't be one) is broken by the same
-  order. This order is the same for every player, so a quest's **index** (how many come before it)
-  is the number every spoiler check on the site compares.
+- Their order: the game's own, from the scenario tree. `Type` is the path: 1, 2, 3 the starting
+  cities' openings (Limsa Lominsa, Gridania, Ul'dah: `ScenarioType` L, G, U; 24–26 quests each),
+  0 the main line (978 quests, A Realm Reborn to Dawntrail). `Unknown2` is the order on its path
+  (1… on each opening, 1 to 1011 on the main line, with gaps), shared by quests that are
+  alternatives of each other: the openings' class variants of "Close to Home", the main line's two
+  "Call of the Sea" (one after Ul'dah's opening, one after Gridania's or Limsa's), the three Grand
+  Companies' "The Company You Keep" and the quest after each. The catalog's order is the openings
+  (1, 2, 3), then the main line, each by `Unknown2`, then by id; a quest without one goes just after
+  the latest-placed quest it needs. *Verified* against XIVAPI's current data (e.g. 65575 "Coming to
+  Gridania" is Type 2, order 1; the last rows, 71012–71014, Dawntrail, order 1009–1011).
+- Should that order be unusable (fewer than nine quests in ten carry one, or they nearly all share a
+  few: the journal's section was read, or the column moved in a patch), the order is worked out from
+  prerequisites instead, as before: each quest after the quests it needs (`PreviousQuest`, only those
+  in the catalog), then by expansion, level and id. Where `PreviousQuestJoin` is 2 any one of the
+  prerequisites is enough (read as "at least one"; 1 as "all"). A loop (there shouldn't be one) is
+  broken by the same order. The log line says which order was used.
+- Which opening a starting city begins: `IPlayerState.StartTown` is a `Town` row (1 Limsa Lominsa,
+  2 Gridania, 3 Ul'dah); the opening is the `ScenarioType` whose letter starts the town's English
+  name, which is the same number (checked against the sheets; the log line lists the pairs).
 - Chapters: the scenario tree's `QuestChapter` row (or the quest's own `QuestChapter` row), its
   `Redo` row's `QuestRedoChapterUI.ChapterName`. If that names fewer than half the quests, chapters
   instead start at each `QuestRedoChapterUI.Quest` and run on to the next.
@@ -206,21 +220,35 @@ code works in Glamour Studio's).
   its name, its `ContentType` in a word, its `ClassJobLevelRequired`.
 - Expansions: `ExVersion`'s names.
 
-*Unverified*: that every `ScenarioTree` row is a main-story quest's id; the meaning of
-`PreviousQuestJoin`'s values; that `QuestChapter.Redo` and `QuestRedoChapterUI` share ids (the
-fallback is there because of this); that `QuestRedoChapterUI.Quest` is a chapter's first quest.
+*Verified* (XIVAPI, current data): every `ScenarioTree` row is a main-story quest's id (65536 and
+up), and `Unknown2` and `Type` are as above. *Unverified*: the meaning of `PreviousQuestJoin`'s
+values; that `QuestChapter.Redo` and `QuestRedoChapterUI` share ids (the fallback is there because
+of this); that `QuestRedoChapterUI.Quest` is a chapter's first quest.
 Check the log line after loading and the Now tab's chapter against the game's New Game+ list.
 
 **The player's road** (`MsqCatalog.Path`, tested): quests not done that the player can't be on are
 left out of the counts:
 
+- the other starting cities' openings. The player's opening is the one with the most of its quests
+  done (on a tie, the starting city's if it's one of them); with none done, the starting city's
+  (`StartTown`); without that, the one with a quest taken. With nothing to tell by, every opening
+  counts;
 - a quest not done with a done quest after it on its chain (another starting city's road, a Grand
   Company not chosen: the player went past without it);
 - a quest shut out by one taken or done (`QuestLock`: the Grand Companies' choice);
 - where roads meet and any one will do, the roads not taken once one of them is begun (a quest in it
-  done or in the log).
+  done or in the log);
+- of alternatives (quests sharing an order), all but the one(s) done; with none done, the one taken;
+  with none taken, the first by id whose prerequisites are on the road (so a Gridanian's "Call of
+  the Sea" is Gridania's, not Ul'dah's), else the first by id. So each set of alternatives counts
+  once.
 
-Before the first quest of a road is begun every road counts (a few minutes for a new character).
+A quest's **index**, the number every spoiler check on the site compares, is how many quests on the
+player's road come before it in the catalog's order (an alternative off the road has its set's). It's
+the same for the same quests done: what comes before the current quest is done, or settled by what's
+done (the opening, one of each set of alternatives), whatever is taken or the town read. It isn't
+quite the same for every player at the same main-line quest: the openings differ in length (Limsa's
+and Gridania's count 23, Ul'dah's 24, each "Close to Home" once).
 
 **Where the player is**: QuestManager's quest log (quests and their steps) and `IsQuestComplete` for
 each main-story quest (read on the framework thread when the log changes, and once a minute), and
@@ -423,8 +451,9 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## What to check first in the game
 
-1. The log line after loading: "read the main story from the scenario tree: N quests, M chapters".
-   N should be in the high hundreds; M in the dozens.
+1. The log line after loading: "read the main story from the scenario tree: N quests, M chapters,
+   … in the game's order; starting cities' openings: town 1 → 1, town 2 → 2, town 3 → 3". N should
+   be about 1,050; M in the dozens.
 2. The Now tab's quest, step, objectives and chapter against the game's journal and the New Game+
    list.
 3. Take a quest, finish one (This session); watch a cutscene; enter and clear a duty.
@@ -441,6 +470,13 @@ duties, levels, people met, lines saved and photos, kept on this PC until the si
 story's reading (progress, chapters, the duties ahead); Welcome back, the journal window, the
 tracker, arrival cards and Who's that?, capture toasts, the end of session card and milestones;
 notes and theories; the pace lock.
+
+- The main story is in the game's own order (the scenario tree's): your starting city's opening, then
+  the main line. The other cities' openings aren't counted, and of quests that are alternatives of
+  each other (the class variants of "Close to Home", the two "Call of the Sea", the Grand Companies'
+  quests) only the one you did, or will do, is. A quest's index is how many quests on your road come
+  before it, the same for the same quests done. If a patch makes the game's order unreadable, the
+  order is worked out from the quests' prerequisites instead.
 
 - The current quest's journal, at its last step (ready to hand in), stops at the step's own entry:
   the entry written for handing it in only shows once it's finished.

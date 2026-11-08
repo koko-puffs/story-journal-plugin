@@ -40,6 +40,7 @@ internal sealed record StoryInputs(
     IReadOnlySet<uint> Done,
     IReadOnlyDictionary<uint, int> Accepted,
     uint ScenarioCurrent,
+    uint StartTown,
     int Level,
     string Job,
     IReadOnlyList<string> People,
@@ -141,10 +142,10 @@ public sealed class Story : IDisposable
         }
         var (scenario, _) = Quests.Scenario();
         var sig = string.Join('|', done.Count, done.Sum(d => (long)d), string.Join(',', accepted.OrderBy(a => a.Key).Select(a => $"{a.Key}:{a.Value}")),
-            scenario, player.Level, player.Job, people.Count, places.Count, codexVersion);
+            scenario, player.StartTown, player.Level, player.Job, people.Count, places.Count, codexVersion);
         if (sig == signature || refreshing is { IsCompleted: false }) return;
         signature = sig;
-        var inputs = new StoryInputs(done.ToHashSet(), new Dictionary<uint, int>(accepted), scenario, player.Level, player.Job, people.ToList(), places.ToList(), codex);
+        var inputs = new StoryInputs(done.ToHashSet(), new Dictionary<uint, int>(accepted), scenario, player.StartTown, player.Level, player.Job, people.ToList(), places.ToList(), codex);
         var gen = generation;
         refreshing = Task.Run(() =>
         {
@@ -168,7 +169,7 @@ public sealed class Story : IDisposable
     private StoryState Read(MsqCatalog catalog, StoryInputs i)
     {
         var started = i.Accepted.Keys.ToHashSet();
-        var path = catalog.Path(i.Done, started);
+        var path = catalog.Path(i.Done, started, catalog.StartPathOf(i.StartTown));
         var current = path.Current(i.ScenarioCurrent);
         var taken = current != null && i.Accepted.ContainsKey(current.Id);
         var sequence = current != null && i.Accepted.TryGetValue(current.Id, out var s) ? s : 0;
@@ -206,24 +207,24 @@ public sealed class Story : IDisposable
         corpus.AddRange(i.People);
         corpus.AddRange(i.Places);
         var seen = i.Codex.SeenKeys(corpus);
-        var next = path.After(current) is { } after ? catalog.IndexOf(after.Id) : (int?)null;
+        var next = path.After(current) is { } after ? path.IndexOf(after.Id) : (int?)null;
         return new StoryState(catalog, path, current, taken, sequence, journal, objectives, previousLine, people, progress, json, corpus, seen, next);
     }
 
     /// <summary>
     /// A quest's event, made on a worker (its journal is read from the sheets). <paramref name="catalog"/>,
-    /// <paramref name="done"/> and <paramref name="started"/> are read on the framework thread when it was
-    /// finished, so a main-story quest is told as one (its index, its chapter) even before the story's
+    /// <paramref name="done"/>, <paramref name="started"/> and <paramref name="startTown"/> are read on the
+    /// framework thread when it was finished, so a main-story quest is told as one (its index, its chapter) even before the story's
     /// first reading after login. The road is returned too (for the chapter's card).
     /// </summary>
-    public (QuestFinished Event, MsqPath? Path) Finished(uint quest, MsqCatalog? catalog, IReadOnlySet<uint>? done, IReadOnlySet<uint> started, IReadOnlyList<string> people)
+    public (QuestFinished Event, MsqPath? Path) Finished(uint quest, MsqCatalog? catalog, IReadOnlySet<uint>? done, IReadOnlySet<uint> started, uint startTown, IReadOnlyList<string> people)
     {
         var rows = JournalReader.Rows(quest);
         var journal = JournalText.Whole(rows);
         var named = Codex.Empty.Named(string.Join("\n", journal), people);
         if (catalog != null && done != null && catalog.Contains(quest))
         {
-            var path = catalog.Path(done, started);
+            var path = catalog.Path(done, started, catalog.StartPathOf(startTown));
             if (catalog.Finished(quest, path, journal, named) is { } msq) return (msq, path);
         }
         var (name, level, expansion, place) = Quests.Info(quest);

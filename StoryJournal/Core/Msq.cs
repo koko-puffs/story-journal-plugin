@@ -14,6 +14,10 @@ namespace StoryJournal.Core;
 /// <param name="Locks">Quests that shut this one out once taken (the Grand Companies' choice).</param>
 /// <param name="Chapter">Its chapter's id (0: none known).</param>
 /// <param name="Duty">The duty it unlocks (a ContentFinderCondition row; 0: none).</param>
+/// <param name="Order">The game's own place for it in the story (ScenarioTree's <c>Unknown2</c>: 1, 2… on its
+/// path; quests that are alternatives of each other share one; 0: not known).</param>
+/// <param name="StartPath">Its path (ScenarioTree's <c>Type</c>): 0 the main line; 1, 2, 3 a starting city's
+/// opening (Limsa Lominsa, Gridania, Ul'dah), which comes before the main line.</param>
 public sealed record MsqQuest(
     uint Id,
     string Name,
@@ -27,7 +31,9 @@ public sealed record MsqQuest(
     string? DutyName = null,
     string? DutyType = null,
     int DutyLevel = 0,
-    string Place = "")
+    string Place = "",
+    int Order = 0,
+    int StartPath = 0)
 {
     public IReadOnlyList<uint> LockedBy => Locks ?? Array.Empty<uint>();
 }
@@ -63,45 +69,81 @@ public static class QuestIds
 }
 
 /// <summary>
-/// The main story, read once per game version: its quests in the story's order (each after the quests
-/// it needs, then by expansion, level and id), its chapters and expansions. A player's own road
-/// through it (<see cref="Path"/>) leaves out the branches they can't be on. Pure.
+/// The main story, read once per game version: its quests in the story's order, its chapters and
+/// expansions. The order is the game's own (<see cref="MsqQuest.Order"/>: the starting cities' openings
+/// first, then the main line, each by its order, then by id) when the quests carry it, else worked out
+/// from prerequisites (<see cref="GameOrder"/>). A player's own road through it (<see cref="Path"/>)
+/// leaves out the openings of the other cities and the alternatives and branches they aren't on. Pure.
 /// </summary>
 public sealed class MsqCatalog
 {
-    private readonly Dictionary<uint, int> index = new();
+    private readonly Dictionary<uint, int> position = new();
     private readonly Dictionary<uint, MsqChapter> chapters;
     private readonly Dictionary<int, MsqExpansion> expansions;
     private readonly Dictionary<uint, List<uint>> children = new();
+    private readonly Dictionary<uint, IReadOnlyList<uint>> alternatives = new();
+    private readonly Dictionary<uint, int> townPaths;
 
-    public MsqCatalog(IEnumerable<MsqQuest> quests, IEnumerable<MsqChapter>? chapterRows = null, IEnumerable<MsqExpansion>? expansionRows = null)
+    /// <param name="townPaths">The <c>Town</c> rows (a character's starting city) and the opening path each
+    /// starts (<see cref="MsqQuest.StartPath"/>); a town not in it is one the catalog can't place.</param>
+    public MsqCatalog(IEnumerable<MsqQuest> quests, IEnumerable<MsqChapter>? chapterRows = null, IEnumerable<MsqExpansion>? expansionRows = null,
+        IReadOnlyDictionary<uint, int>? townPaths = null)
     {
         var all = new Dictionary<uint, MsqQuest>();
         foreach (var q in quests)
             if (q.Id != 0) all[q.Id] = q;
-        Order = Sort(all);
-        for (var i = 0; i < Order.Count; i++) index[Order[i].Id] = i;
+        var byPrerequisites = Sort(all);
+        GameOrder = Usable(all.Values);
+        Order = GameOrder ? ByGameOrder(byPrerequisites) : byPrerequisites;
+        for (var i = 0; i < Order.Count; i++) position[Order[i].Id] = i;
         foreach (var q in Order)
-            foreach (var p in q.Previous.Where(index.ContainsKey).Distinct())
+            foreach (var p in q.Previous.Where(position.ContainsKey).Distinct())
             {
                 if (!children.TryGetValue(p, out var list)) children[p] = list = new List<uint>();
                 list.Add(q.Id);
             }
+        if (GameOrder)
+            foreach (var g in Order.Where(q => q.Order > 0).GroupBy(q => (q.StartPath, q.Order)))
+            {
+                if (g.Count() < 2) continue;
+                var ids = g.Select(q => q.Id).OrderBy(id => id).ToList();
+                foreach (var id in ids) alternatives[id] = ids;
+            }
+        StartPaths = Order.Where(q => q.StartPath > 0).Select(q => q.StartPath).Distinct().OrderBy(p => p).ToList();
         chapters = (chapterRows ?? Array.Empty<MsqChapter>()).GroupBy(c => c.Id).ToDictionary(g => g.Key, g => g.First());
         expansions = (expansionRows ?? Array.Empty<MsqExpansion>()).GroupBy(e => e.Id).ToDictionary(g => g.Key, g => g.First());
+        this.townPaths = townPaths?.Where(t => StartPaths.Contains(t.Value)).ToDictionary(t => t.Key, t => t.Value) ?? new Dictionary<uint, int>();
     }
 
-    /// <summary>Every main-story quest in the story's order (every branch: the same for every player).</summary>
+    /// <summary>Every main-story quest in the story's order (every path and branch: the same for every player).</summary>
     public IReadOnlyList<MsqQuest> Order { get; }
+
+    /// <summary>
+    /// The order is the game's own (<see cref="MsqQuest.Order"/>); false: the quests didn't carry a usable
+    /// one (none, or too few, or nearly all the same), and it was worked out from their prerequisites.
+    /// </summary>
+    public bool GameOrder { get; }
+
+    /// <summary>The starting cities' opening paths there are (<see cref="MsqQuest.StartPath"/> 1, 2, 3).</summary>
+    public IReadOnlyList<int> StartPaths { get; }
 
     public int Count => Order.Count;
 
-    public bool Contains(uint id) => index.ContainsKey(QuestIds.Row(id));
+    public bool Contains(uint id) => position.ContainsKey(QuestIds.Row(id));
 
-    /// <summary>A quest's place in the story's order: how many main-story quests come before it (-1: not one).</summary>
-    public int IndexOf(uint id) => index.TryGetValue(QuestIds.Row(id), out var i) ? i : -1;
+    /// <summary>
+    /// A quest's place in the catalog's order, every path and branch counted (-1: not one). Not the index
+    /// the site compares: that's the player's road's (<see cref="MsqPath.IndexOf"/>).
+    /// </summary>
+    public int Position(uint id) => position.TryGetValue(QuestIds.Row(id), out var i) ? i : -1;
 
-    public MsqQuest? Quest(uint id) => index.TryGetValue(QuestIds.Row(id), out var i) ? Order[i] : null;
+    public MsqQuest? Quest(uint id) => position.TryGetValue(QuestIds.Row(id), out var i) ? Order[i] : null;
+
+    /// <summary>The quests that share this one's place in the game's order (it among them, by id); empty when none do.</summary>
+    public IReadOnlyList<uint> Alternatives(uint id) => alternatives.TryGetValue(QuestIds.Row(id), out var a) ? a : Array.Empty<uint>();
+
+    /// <summary>The opening path a starting city (a <c>Town</c> row) begins; 0 when it isn't known.</summary>
+    public int StartPathOf(uint town) => townPaths.TryGetValue(town, out var p) ? p : 0;
 
     public MsqChapter? Chapter(uint id) => chapters.TryGetValue(id, out var c) ? c : null;
 
@@ -115,9 +157,48 @@ public sealed class MsqCatalog
     public IReadOnlyList<uint> Next(uint id) => children.TryGetValue(QuestIds.Row(id), out var c) ? c : Array.Empty<uint>();
 
     /// <summary>
-    /// The story's order: a quest after every quest it needs (those in the catalog), and among those ready
-    /// at once the earlier expansion first, then the lower level, then the lower id. A loop in the
-    /// prerequisites (shouldn't happen) is broken by putting what's left in that same order.
+    /// The game's order is usable: nine quests in ten or more carry one, and they don't nearly all share a
+    /// few (at least half as many places as quests that carry one).
+    /// </summary>
+    private static bool Usable(IEnumerable<MsqQuest> quests)
+    {
+        var list = quests.ToList();
+        var ordered = list.Where(q => q.Order > 0).ToList();
+        if (ordered.Count == 0 || ordered.Count * 10 < list.Count * 9) return false;
+        return ordered.Select(q => (q.StartPath, q.Order)).Distinct().Count() * 2 >= ordered.Count;
+    }
+
+    /// <summary>Where a path comes: the openings (1, 2, 3) before the main line (0).</summary>
+    private static int PathRank(int path) => path > 0 ? path : int.MaxValue;
+
+    /// <summary>
+    /// The game's order: the openings, then the main line; on each, by its order, then by id. A quest
+    /// without one goes just after the latest-placed quest it needs (on that quest's path), or at the
+    /// start of its own path when it needs none with a place.
+    /// </summary>
+    private static List<MsqQuest> ByGameOrder(List<MsqQuest> byPrerequisites)
+    {
+        var place = new Dictionary<uint, (int Rank, int Order, int After)>();
+        foreach (var q in byPrerequisites)
+        {
+            if (q.Order > 0)
+            {
+                place[q.Id] = (PathRank(q.StartPath), q.Order, 0);
+                continue;
+            }
+            var latest = (Rank: PathRank(q.StartPath), Order: 0, After: 1);
+            foreach (var p in q.Previous)
+                if (place.TryGetValue(p, out var at) && (at.Rank, at.Order).CompareTo((latest.Rank, latest.Order)) > 0)
+                    latest = (at.Rank, at.Order, 1);
+            place[q.Id] = latest;
+        }
+        return byPrerequisites.OrderBy(q => place[q.Id]).ThenBy(q => q.Id).ToList();
+    }
+
+    /// <summary>
+    /// The prerequisites' order: a quest after every quest it needs (those in the catalog), and among
+    /// those ready at once the earlier expansion first, then the lower level, then the lower id. A loop in
+    /// the prerequisites (shouldn't happen) is broken by putting what's left in that same order.
     /// </summary>
     private static List<MsqQuest> Sort(Dictionary<uint, MsqQuest> all)
     {
@@ -172,47 +253,83 @@ public sealed class MsqCatalog
             var q = stack.Pop();
             if (!seen.Add(q) || Quest(q) is not { } quest) continue;
             foreach (var p in quest.Previous)
-                if (index.ContainsKey(p)) stack.Push(p);
+                if (position.ContainsKey(p)) stack.Push(p);
         }
         return seen;
     }
 
     /// <summary>
-    /// A main-story quest's finishing as its event tells it (its index, chapter, whether it closed its
-    /// chapter or expansion on <paramref name="path"/>), from the catalog alone: the story needn't have
-    /// been read yet (just after login). Null when it isn't one of the main story's.
+    /// A main-story quest's finishing as its event tells it (its index on <paramref name="path"/>, its
+    /// chapter, whether it closed its chapter or expansion there), from the catalog alone: the story
+    /// needn't have been read yet (just after login). Null when it isn't one of the main story's.
     /// </summary>
     public QuestFinished? Finished(uint quest, MsqPath path, IReadOnlyList<string> journal, IReadOnlyList<string> people)
     {
         if (Quest(quest) is not { } msq) return null;
         var chapter = msq.Chapter != 0 ? Chapter(msq.Chapter)?.Name : null;
-        return new QuestFinished(msq.Id, msq.Name, msq.Level, true, IndexOf(msq.Id), msq.Expansion, chapter,
+        return new QuestFinished(msq.Id, msq.Name, msq.Level, true, path.IndexOf(msq.Id), msq.Expansion, chapter,
             path.ChapterDone(msq), path.ExpansionDone(msq), msq.Place, journal, people);
     }
 
     /// <summary>
-    /// The player's road through the story: <paramref name="done"/> the quests finished,
-    /// <paramref name="started"/> those taken and not finished. Left off it: a quest not done that has
-    /// a done quest after it on its chain (a branch the player went past without: another starting
-    /// city's road); a quest shut out by one taken (<see cref="MsqQuest.Locks"/>: another Grand Company);
-    /// and, where roads meet with any one of them enough, the roads not taken once one of them is begun.
+    /// The opening the player is on: the one with the most of its quests done (on a tie, the starting
+    /// city's if it's one of them, else the first); with none done, the starting city's
+    /// (<paramref name="startPath"/>, from <see cref="StartPathOf"/>); else the one with the most taken; 0
+    /// when it can't be told (then every opening counts).
     /// </summary>
-    public MsqPath Path(IReadOnlySet<uint> done, IReadOnlySet<uint>? started = null)
+    public int OwnStartPath(IReadOnlySet<uint> done, IReadOnlySet<uint> started, int startPath)
+    {
+        if (StartPaths.Count == 0) return 0;
+        int Most(Func<uint, bool> counted)
+        {
+            var counts = Order.Where(q => q.StartPath > 0 && counted(q.Id)).GroupBy(q => q.StartPath).ToDictionary(g => g.Key, g => g.Count());
+            if (counts.Count == 0) return 0;
+            var most = counts.Values.Max();
+            var tied = counts.Where(c => c.Value == most).Select(c => c.Key).OrderBy(p => p).ToList();
+            return tied.Contains(startPath) ? startPath : tied[0];
+        }
+        var fromDone = Most(done.Contains);
+        if (fromDone != 0) return fromDone;
+        if (StartPaths.Contains(startPath)) return startPath;
+        return Most(started.Contains);
+    }
+
+    /// <summary>
+    /// The player's road through the story: <paramref name="done"/> the quests finished,
+    /// <paramref name="started"/> those taken and not finished, <paramref name="startPath"/> the opening
+    /// their starting city begins (0: not known). Left off it:
+    /// <list type="bullet">
+    /// <item>the other cities' openings (<see cref="OwnStartPath"/>);</item>
+    /// <item>a quest not done that has a done quest after it on its chain (a branch the player went past
+    /// without);</item>
+    /// <item>a quest shut out by one taken (<see cref="MsqQuest.Locks"/>: another Grand Company);</item>
+    /// <item>where roads meet with any one of them enough, the roads not taken once one of them is begun;</item>
+    /// <item>with the game's order, of quests sharing a place (alternatives), all but the one(s) done; with
+    /// none done, the one(s) taken; with none taken, the first by id whose prerequisites are on the road
+    /// (else the first by id).</item>
+    /// </list>
+    /// </summary>
+    public MsqPath Path(IReadOnlySet<uint> done, IReadOnlySet<uint>? started = null, int startPath = 0)
     {
         started ??= new HashSet<uint>();
         bool Begun(uint q) => done.Contains(q) || started.Contains(q);
         var off = new HashSet<uint>();
 
+        var own = OwnStartPath(done, started, startPath);
+        if (own != 0)
+            foreach (var q in Order)
+                if (q.StartPath > 0 && q.StartPath != own) off.Add(q.Id);
+
         // A done quest further down its chain: walked up from every done quest at once, each quest
         // reached is one with a done quest after it.
         var below = new HashSet<uint>();
-        var walk = new Queue<uint>(done.Where(index.ContainsKey));
+        var walk = new Queue<uint>(done.Where(position.ContainsKey));
         while (walk.Count > 0)
         {
             var q = Quest(walk.Dequeue());
             if (q == null) continue;
             foreach (var p in q.Previous)
-                if (index.ContainsKey(p) && below.Add(p)) walk.Enqueue(p);
+                if (position.ContainsKey(p) && below.Add(p)) walk.Enqueue(p);
         }
         foreach (var id in below)
             if (!done.Contains(id)) off.Add(id);
@@ -227,7 +344,7 @@ public sealed class MsqCatalog
         foreach (var q in Order)
         {
             if (!q.AnyPrevious) continue;
-            var roads = q.Previous.Where(index.ContainsKey).Distinct().ToList();
+            var roads = q.Previous.Where(position.ContainsKey).Distinct().ToList();
             if (roads.Count < 2) continue;
             var ancestry = roads.ToDictionary(r => r, Ancestry);
             var taken = roads.Where(r => ancestry[r].Any(Begun)).ToList();
@@ -238,7 +355,30 @@ public sealed class MsqCatalog
                     if (!keep.Contains(a) && !Begun(a)) off.Add(a);
         }
 
-        return new MsqPath(this, done, off);
+        // Alternatives (quests sharing a place in the game's order), in the story's order, so a later
+        // one's prerequisites are already settled.
+        var settled = new HashSet<uint>();
+        bool OnRoad(uint p) => done.Contains(p) || !off.Contains(p);
+        bool Reachable(MsqQuest q)
+        {
+            var needs = q.Previous.Where(p => p != q.Id && position.ContainsKey(p)).Distinct().ToList();
+            if (needs.Count == 0) return true;
+            return q.AnyPrevious ? needs.Any(OnRoad) : needs.All(OnRoad);
+        }
+        foreach (var q in Order)
+        {
+            var group = Alternatives(q.Id);
+            if (group.Count == 0 || !settled.Add(group[0])) continue;
+            var open = group.Where(id => !off.Contains(id)).ToList();
+            var keep = open.Where(done.Contains).ToList();
+            if (keep.Count == 0) keep = open.Where(started.Contains).ToList();
+            if (keep.Count == 0) keep = open.Where(id => Reachable(Quest(id)!)).Take(1).ToList();
+            if (keep.Count == 0) keep = open.Take(1).ToList();
+            foreach (var id in group)
+                if (!keep.Contains(id)) off.Add(id);
+        }
+
+        return new MsqPath(this, done, off, own);
     }
 }
 
@@ -248,14 +388,32 @@ public sealed class MsqPath
     private readonly MsqCatalog catalog;
     private readonly IReadOnlySet<uint> done;
     private readonly HashSet<uint> off;
+    private readonly int[] before;
 
-    internal MsqPath(MsqCatalog catalog, IReadOnlySet<uint> done, HashSet<uint> off)
+    internal MsqPath(MsqCatalog catalog, IReadOnlySet<uint> done, HashSet<uint> off, int startPath)
     {
         this.catalog = catalog;
         this.done = done;
         this.off = off;
+        StartPath = startPath;
         Quests = catalog.Order.Where(q => !off.Contains(q.Id)).ToList();
+        before = new int[catalog.Order.Count];
+        var count = 0;
+        for (var i = 0; i < before.Length; i++)
+        {
+            before[i] = count;
+            if (!off.Contains(catalog.Order[i].Id)) count++;
+        }
+        // An alternative off the road is where its place on the road is (the first of them: they're side by side).
+        for (var i = 0; i < before.Length; i++)
+        {
+            var id = catalog.Order[i].Id;
+            if (off.Contains(id) && catalog.Alternatives(id) is { Count: > 0 } group) before[i] = before[catalog.Position(group[0])];
+        }
     }
+
+    /// <summary>The starting city's opening the road takes (<see cref="MsqCatalog.OwnStartPath"/>; 0: every one, it couldn't be told).</summary>
+    public int StartPath { get; }
 
     /// <summary>The quests on the player's road, in the story's order.</summary>
     public IReadOnlyList<MsqQuest> Quests { get; }
@@ -282,20 +440,27 @@ public sealed class MsqPath
     }
 
     /// <summary>
-    /// The number every spoiler check compares: how many main-story quests come before the current one in
-    /// the story's order (the same quest gives every player the same number); every quest's count once
-    /// the story is finished.
+    /// A quest's index: how many quests on the road come before it in the story's order (-1: not a
+    /// main-story quest). A quest off the road (an alternative not taken) has the index of its place.
+    /// The same for the same quests done: what comes before the current quest is done, or settled by
+    /// what's done (one of each set of alternatives).
     /// </summary>
-    public int Index(MsqQuest? current) => current == null ? (Complete ? catalog.Count : 0) : catalog.IndexOf(current.Id);
+    public int IndexOf(uint id) => catalog.Position(id) is var at && at >= 0 ? before[at] : -1;
+
+    /// <summary>
+    /// The number every spoiler check compares: the current quest's index on the road
+    /// (<see cref="IndexOf"/>); the road's whole count once the story is finished.
+    /// </summary>
+    public int Index(MsqQuest? current) => current == null ? (Complete ? Total : 0) : IndexOf(current.Id);
 
     /// <summary>The quests not done on the road from <paramref name="current"/> on (it first).</summary>
     public IEnumerable<MsqQuest> Remaining(MsqQuest? current)
     {
         if (current == null) yield break;
-        var from = catalog.IndexOf(current.Id);
+        var from = catalog.Position(current.Id);
         foreach (var q in Quests)
         {
-            if (catalog.IndexOf(q.Id) < from || done.Contains(q.Id)) continue;
+            if (catalog.Position(q.Id) < from || done.Contains(q.Id)) continue;
             yield return q;
         }
     }
@@ -304,16 +469,16 @@ public sealed class MsqPath
     public MsqQuest? Previous(MsqQuest? current)
     {
         if (current == null) return Quests.LastOrDefault(q => done.Contains(q.Id));
-        var at = catalog.IndexOf(current.Id);
-        return Quests.LastOrDefault(q => catalog.IndexOf(q.Id) < at && done.Contains(q.Id));
+        var at = catalog.Position(current.Id);
+        return Quests.LastOrDefault(q => catalog.Position(q.Id) < at && done.Contains(q.Id));
     }
 
     /// <summary>The road's next quest after <paramref name="current"/> (for the pace lock).</summary>
     public MsqQuest? After(MsqQuest? current)
     {
         if (current == null) return null;
-        var at = catalog.IndexOf(current.Id);
-        return Quests.FirstOrDefault(q => catalog.IndexOf(q.Id) > at && !done.Contains(q.Id));
+        var at = catalog.Position(current.Id);
+        return Quests.FirstOrDefault(q => catalog.Position(q.Id) > at && !done.Contains(q.Id));
     }
 
     /// <summary>How far through each expansion: every expansion, those not reached with nothing done.</summary>

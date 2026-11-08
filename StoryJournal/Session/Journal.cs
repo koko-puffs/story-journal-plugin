@@ -345,6 +345,7 @@ public sealed class Journal : IDisposable
         }
         var done = catalog != null ? Quests.Done(catalog.Order.Select(q => q.Id)) : null;
         var started = Recorder.Accepted.Keys.ToHashSet();
+        var town = Player?.StartTown ?? 0;
         var people = Memory?.People.Select(p => p.Name).ToList() ?? new List<string>();
         var key = characterKey;
         Task.Run(() =>
@@ -353,7 +354,7 @@ public sealed class Journal : IDisposable
             MsqPath? path = null;
             try
             {
-                (q, path) = Story.Finished(quest, catalog, done, started, people);
+                (q, path) = Story.Finished(quest, catalog, done, started, town, people);
             }
             catch (Exception ex)
             {

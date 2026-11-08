@@ -8,7 +8,8 @@ namespace StoryJournal.Game;
 
 /// <summary>The character you're playing, as read now.</summary>
 /// <param name="Key">Its key for the site (<see cref="SiteLink.CharacterKey"/>).</param>
-public sealed record PlayerNow(string Key, string Name, string World, int Level, string Job, uint JobId, uint Territory);
+/// <param name="StartTown">The starting city (a <c>Town</c> row: 1 Limsa Lominsa, 2 Gridania, 3 Ul'dah; 0: not read).</param>
+public sealed record PlayerNow(string Key, string Name, string World, int Level, string Job, uint JobId, uint Territory, uint StartTown = 0);
 
 /// <summary>
 /// What the game is doing, read on the framework thread: whether you're logged in and loaded, in
@@ -75,7 +76,16 @@ public static class InGame
             var job = ps.ClassJob;
             var abbr = job.IsValid ? job.Value.Abbreviation.ExtractText() : string.Empty;
             var world = ps.HomeWorld.IsValid ? ps.HomeWorld.Value.Name.ExtractText() : string.Empty;
-            return new PlayerNow(SiteLink.CharacterKey(ps.ContentId, salt), ps.CharacterName, world, ps.Level, abbr, job.RowId, Services.ClientState.TerritoryType);
+            uint town = 0;
+            try
+            {
+                town = ps.StartTown.RowId;
+            }
+            catch (Exception)
+            {
+                // Not read: the road is told from the quests done instead.
+            }
+            return new PlayerNow(SiteLink.CharacterKey(ps.ContentId, salt), ps.CharacterName, world, ps.Level, abbr, job.RowId, Services.ClientState.TerritoryType, town);
         }
         catch (Exception ex)
         {
