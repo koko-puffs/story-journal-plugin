@@ -12,13 +12,58 @@ namespace StoryJournal.UI;
 /// </summary>
 internal static class Parts
 {
-    /// <summary>The mark: the tile red rounded square (8/30 of its size) with the open book in white.</summary>
+    /// <summary>
+    /// The mark, as the site's (kokos-tools: features/marks.ts) and the plugin's icon: a bookmark of
+    /// the tile red, its ribbon notched at the foot, an open book in white under a small star; drawn
+    /// in the mark's own 30 × 30 grid, scaled.
+    /// </summary>
     public static void Mark(Vector2 pos, float size)
     {
         var dl = Kit.Dl;
-        dl.AddRectFilled(pos, pos + new Vector2(size), Palette.U32(Palette.AccentDeep), size * 8 / 30);
-        var icon = MathF.Round(size * 0.62f);
-        Icons.Draw(dl, Icon.BookOpen, pos + new Vector2((size - icon) / 2, (size - icon) / 2 + size * 0.04f), icon, Palette.White, 2.2f);
+        var k = size / 30f;
+        Vector2 P(float x, float y) => pos + new Vector2(x, y) * k;
+        var tile = Palette.U32(Palette.AccentDeep);
+        var white = Palette.U32(Palette.White);
+        // Its body (the top corners rounded), then the two tails either side of the notch.
+        dl.AddRectFilled(P(3.5f, 1), P(26.5f, 22.6f), tile, 2.5f * k, ImDrawFlags.RoundCornersTop);
+        Span<Vector2> tail = stackalloc Vector2[4];
+        tail[0] = P(3.5f, 22.2f); tail[1] = P(15, 22.2f); tail[2] = P(15, 22.4f); tail[3] = P(4.6f, 28.6f);
+        FillConvex(dl, tail, tile);
+        tail[0] = P(3.5f, 22.2f); tail[1] = P(4.6f, 28.6f); tail[2] = P(3.8f, 28.4f); tail[3] = P(3.5f, 27.8f);
+        FillConvex(dl, tail, tile);
+        tail[0] = P(26.5f, 22.2f); tail[1] = P(15, 22.2f); tail[2] = P(15, 22.4f); tail[3] = P(25.4f, 28.6f);
+        FillConvex(dl, tail, tile);
+        tail[0] = P(26.5f, 22.2f); tail[1] = P(25.4f, 28.6f); tail[2] = P(26.2f, 28.4f); tail[3] = P(26.5f, 27.8f);
+        FillConvex(dl, tail, tile);
+        // The star: two thin diamonds crossed.
+        var c = P(15, 6.4f);
+        var r = 2.6f * k;
+        var w = r * 0.28f;
+        Span<Vector2> d = stackalloc Vector2[4];
+        d[0] = c + new Vector2(0, -r); d[1] = c + new Vector2(w, 0); d[2] = c + new Vector2(0, r); d[3] = c + new Vector2(-w, 0);
+        FillConvex(dl, d, white);
+        d[0] = c + new Vector2(-r, 0); d[1] = c + new Vector2(0, -w); d[2] = c + new Vector2(r, 0); d[3] = c + new Vector2(0, w);
+        FillConvex(dl, d, white);
+        // The open book under it.
+        var icon = size * 0.52f;
+        Icons.Draw(dl, Icon.BookOpen, pos + new Vector2((size - icon) / 2, size * 0.51f - icon / 2), icon, Palette.White, 2.2f);
+    }
+
+    /// <summary>
+    /// A convex shape filled, its points turned to go clockwise on screen if they don't (ImGui
+    /// smooths a filled shape's edge only then).
+    /// </summary>
+    private static void FillConvex(ImDrawListPtr dl, Span<Vector2> pts, uint col)
+    {
+        var area = 0f;
+        for (var i = 0; i < pts.Length; i++)
+        {
+            var a = pts[i];
+            var b = pts[(i + 1) % pts.Length];
+            area += a.X * b.Y - b.X * a.Y;
+        }
+        if (area < 0) pts.Reverse();
+        dl.AddConvexPolyFilled(ref pts[0], pts.Length, col);
     }
 
     /// <summary>A card's head: the mark, its title, and × on the right (true when pressed).</summary>
