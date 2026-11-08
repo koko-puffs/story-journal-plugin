@@ -401,7 +401,13 @@ public sealed class SiteSync : IDisposable
             if (memory.Theories.FirstOrDefault(t => !t.Sent) is not { } theory) continue;
             var body = new JsonObject { ["id"] = theory.Id.ToString("D"), ["body"] = theory.Body };
             if (theory.Subject.Length > 0) body["subject"] = Json.Tidy(theory.Subject, 60);
-            if (theory.CheckAfter > 0) body["checkAfter"] = theory.CheckAfter;
+            // The main-story index to ask at, as this PC worked it out (the site's own reading may be a
+            // sync behind, so the relative count alone could drift); the count too, for older sites.
+            if (theory.CheckAfter > 0)
+            {
+                body["checkAfter"] = theory.CheckAfter;
+                if (theory.DueIndex > 0) body["checkAt"] = theory.DueIndex;
+            }
             Send("sj_plugin_theory", new JsonObject { ["p_key"] = key, ["p_theory"] = body }, gen, ok =>
             {
                 if (ok) theory.Sent = true;
