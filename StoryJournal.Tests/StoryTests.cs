@@ -270,11 +270,21 @@ public class CodexTests
 
     [Theory]
     [InlineData("You met Haurchefant at the camp.", true)]
-    [InlineData("HAURCHEFANT smiled.", true)]
+    [InlineData("HAURCHEFANT smiled.", false)]
     [InlineData("Haurchefant's camp.", true)]
     [InlineData("The Haurchefants of the world.", false)]
     [InlineData("SirHaurchefant", false)]
     public void NamesMatchAsWholeWords(string text, bool seen) => Assert.Equal(seen, X.Mentions(text, "Haurchefant"));
+
+    [Fact]
+    public void AProperNounMatchesAsWrittenAndALowerCaseWordInAnyCase()
+    {
+        // "the Echo" is the gift; "an echo of" is only a word, and mustn't unlock the Echo's card.
+        Assert.True(X.Mentions("You have the Echo.", "Echo"));
+        Assert.False(X.Mentions("An echo of the past.", "Echo"));
+        Assert.True(X.Mentions("Thick with Aether here.", "aether"));
+        Assert.True(X.Mentions("thick with aether here.", "aether"));
+    }
 
     [Fact]
     public void CurlyApostrophesAreTheSame()

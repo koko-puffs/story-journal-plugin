@@ -268,9 +268,10 @@ aliases, zone, layers: [{ text, needs, expansion? }], whisper }] }`), fetched on
 plugin's config folder (`codex.json`) and fetched again once a day. Until then the copy kept is
 used, or none: the Codex is empty, and only the people and places the plugin saw itself show.
 
-An entry is **seen** once any of its names (name or aliases) appears as a whole word, whatever its
-case, in the corpus above (no letter or digit just before or after; curly and straight apostrophes
-are the same). A layer shows when its entry is seen, every name in its `needs` is seen too, and the
+An entry is **seen** once any of its names (name or aliases) appears as a whole word in the corpus
+above (no letter or digit just before or after; curly and straight apostrophes are the same): a name
+written with a capital only as written, as a proper noun ("the Echo", never "an echo of"), and one
+written in lower case ("aether") in any case. The site's `model/codex.ts` matches the same way. A layer shows when its entry is seen, every name in its `needs` is seen too, and the
 player's expansion (the current quest's) is at least its `expansion`; with spoilers off, every layer.
 The arrival card's sentence is the `whisper` of the `place` entry whose `zone` is the game's zone
 name. "Ask the journal" (the Codex tab's field) finds seen entries whose name or alias is the word,

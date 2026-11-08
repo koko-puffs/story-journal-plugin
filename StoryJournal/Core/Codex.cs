@@ -26,7 +26,7 @@ public sealed record CodexEntry(string Key, string Kind, string Name, IReadOnlyL
 public sealed class Codex
 {
     /// <summary>Each name's pattern, made once (the framework thread and the story's worker both ask).</summary>
-    private readonly ConcurrentDictionary<string, Regex> patterns = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Regex> patterns = new(StringComparer.Ordinal);
 
     public Codex(IReadOnlyList<CodexEntry> entries) => Entries = entries;
 
@@ -60,13 +60,23 @@ public sealed class Codex
     {
         if (patterns.TryGetValue(name, out var r)) return r;
         // Whole word: no letter or digit just before or after (a name with an apostrophe or a space inside still matches whole).
-        var escaped = Regex.Escape(Plain(name.Trim()));
-        r = new Regex($@"(?<![\p{{L}}\p{{N}}]){escaped}(?![\p{{L}}\p{{N}}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // A name written with a capital is a proper noun and matches only as written ("Echo", not "an echo of"); one
+        // written in lower case ("aether", "primal") matches in any case. The site's model/codex.ts does the same.
+        var plain = Plain(name.Trim());
+        var escaped = Regex.Escape(plain);
+        var options = RegexOptions.CultureInvariant | (ProperNoun(plain) ? RegexOptions.None : RegexOptions.IgnoreCase);
+        r = new Regex($@"(?<![\p{{L}}\p{{N}}]){escaped}(?![\p{{L}}\p{{N}}])", options);
         if (patterns.Count > 4000) patterns.Clear();
         return patterns[name] = r;
     }
 
-    /// <summary>Is <paramref name="name"/> in <paramref name="text"/> as a whole word, whatever its case?</summary>
+    /// <summary>Does the name start with a capital letter (a proper noun, matched as written)?</summary>
+    public static bool ProperNoun(string name) => name.Length > 0 && char.IsUpper(name[0]);
+
+    /// <summary>
+    /// Is <paramref name="name"/> in <paramref name="text"/> as a whole word: as written when it starts with a capital,
+    /// in any case when it doesn't?
+    /// </summary>
     public bool Mentions(string text, string name) => !string.IsNullOrWhiteSpace(name) && Pattern(name).IsMatch(Plain(text));
 
     /// <summary>Is the name anywhere in what's been seen?</summary>
