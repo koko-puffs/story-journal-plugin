@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 30 30">
-  <!-- an open book with a star over it, on a bookmark on its tile (src/features/marks.ts: npm run marks writes this) -->
-  <defs><radialGradient id="shine" cx="50%" cy="58%" r="62%"><stop offset="0" stop-color="#ffffff" stop-opacity=".26"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient></defs>
-  <path d="M6 1h18a2.5 2.5 0 0 1 2.5 2.5v24.3a.9.9 0 0 1-1.4.7L15 22.4l-10.1 6.1a.9.9 0 0 1-1.4-.7V3.5A2.5 2.5 0 0 1 6 1z" fill="#c21d3a"/>
+  <!-- an open book on a bookmark on its tile (src/features/marks.ts: npm run marks writes this) -->
+  <defs><linearGradient id="tile-story-journal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#dc3654"/><stop offset="0.5" stop-color="#c21d3a"/><stop offset="1" stop-color="#991130"/></linearGradient><radialGradient id="shine" cx="50%" cy="58%" r="62%"><stop offset="0" stop-color="#ffffff" stop-opacity=".26"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient></defs>
+  <path d="M6 1h18a2.5 2.5 0 0 1 2.5 2.5v24.3a.9.9 0 0 1-1.4.7L15 22.4l-10.1 6.1a.9.9 0 0 1-1.4-.7V3.5A2.5 2.5 0 0 1 6 1z" fill="url(#tile-story-journal)"/>
   <path d="M6 1h18a2.5 2.5 0 0 1 2.5 2.5v24.3a.9.9 0 0 1-1.4.7L15 22.4l-10.1 6.1a.9.9 0 0 1-1.4-.7V3.5A2.5 2.5 0 0 1 6 1z" fill="url(#shine)"/>
-  <path d="M15 3.8l0.73 1.87 1.87 0.73-1.87 0.73-0.73 1.87-0.73-1.87-1.87-0.73 1.87-0.73z" fill="#ffffff"/><g transform="translate(15 15.3) scale(.86) translate(-15 -16.6)"><g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12.2c-1.9-1.4-4.3-1.9-7-1.7v10.4c2.7-.2 5.1.3 7 1.7 1.9-1.4 4.3-1.9 7-1.7V10.5c-2.7-.2-5.1.3-7 1.7z"/><path d="M15 12.2v10.4"/></g></g>
+  <g transform="translate(15 12.4) scale(1.02) translate(-15 -16.6)"><g fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12.2c-1.9-1.4-4.3-1.9-7-1.7v10.4c2.7-.2 5.1.3 7 1.7 1.9-1.4 4.3-1.9 7-1.7V10.5c-2.7-.2-5.1.3-7 1.7z"/><path d="M15 12.2v10.4"/></g></g>
 </svg>

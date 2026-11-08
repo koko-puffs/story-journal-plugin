@@ -365,9 +365,10 @@ buttons) with Story Journal's accent, cherry red with a hint of pink `#f2425f` (
 `#6cb6ff`), and the mark's deeper tile red `#c21d3a` (was `#2a6fd6`); the quill stays gold `#e8d6ad`.
 The mark (`Parts.Mark`, at each card's head, and the plugin's icon) is the site's (kokos-tools:
 `src/features/marks.ts`, 8 November 2026): a bookmark of the tile red, notched at its foot, an open
-book in white under a small star; drawn in the mark's 30 × 30 grid (its body a rectangle rounded
-at the top, its two tails convex pieces either side of the notch, the star two thin diamonds
-crossed). It was the open book on a rounded square before.
+book on it in white; drawn flat in the mark's 30 × 30 grid (its body a rectangle rounded at the
+top, its two tails convex pieces either side of the notch; the icon's red is a blend from cherry
+to wine; a star over the book came off the same day). It was the open book on a rounded square
+before.
 Every card waits for a calm moment (`InGame.Calm`: not in combat, a duty, a cutscene, a loading
 screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group Pose anyway.
 
