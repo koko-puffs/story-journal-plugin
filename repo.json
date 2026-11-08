@@ -1,0 +1,36 @@
+[
+  {
+    "Author": "koko",
+    "Name": "Story Journal",
+    "InternalName": "StoryJournal",
+    "Punchline": "A journal of your journey through the main story, written as you play and read on kokos-tools.com.",
+    "Description": "The in-game half of Story Journal on kokos-tools.com. As you play, it writes down your journey through the main story: the quests you take and finish (with the game's own journal for them), cutscenes, the places you reach, the duties you clear, your levels and the people you meet; and, when you ask, the line on screen or a photo without the HUD. The site turns it into recaps, a Codex that grows with you, chapters and a storybook.\n\nIn the game it makes coming back easy: a Welcome back card with three lines of story and the next step (flagged on your map), a journal window that says why you're doing what you're doing, a small tracker, cards about new places and people you've met, an end of session card, and a card when a chapter closes. Seal theories and settle them later, and keep pace with a friend.\n\nNothing shows anything past your own last finished quest unless you turn spoilers off on the site. Link it with a token from kokos-tools.com (Settings → Story Journal). Open it with /sj.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/koko-puffs/story-journal-plugin",
+    "Tags": [
+      "story",
+      "main scenario",
+      "msq",
+      "journal",
+      "recap",
+      "quests",
+      "screenshots",
+      "story journal"
+    ],
+    "CategoryTags": [
+      "utility"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadPriority": 0,
+    "IconUrl": "https://raw.githubusercontent.com/koko-puffs/story-journal-plugin/main/StoryJournal/images/icon.png",
+    "AcceptsFeedback": true,
+    "AssemblyVersion": "0.1.0.0",
+    "TestingAssemblyVersion": "0.1.0.0",
+    "DownloadLinkInstall": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.1.0/StoryJournal.zip",
+    "DownloadLinkUpdate": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.1.0/StoryJournal.zip",
+    "DownloadLinkTesting": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.1.0/StoryJournal.zip",
+    "LastUpdate": 1794152467,
+    "IsHide": false,
+    "IsTestingExclusive": false
+  }
+]
