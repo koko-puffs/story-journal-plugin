@@ -273,6 +273,8 @@ public sealed class Journal : IDisposable
         welcomeDecided = false;
         sessionEvents.Clear();
         finishWaiting.Clear();
+        // A flag the site asked for another character (or before logging out) isn't this one's.
+        flagWaiting = null;
         if (Queue.OpenSession(player.Key) is { } open)
         {
             if (DateTime.UtcNow - open.LastAt > clock.Idle)
@@ -308,6 +310,7 @@ public sealed class Journal : IDisposable
         Who = null;
         Arrival = null;
         Player = null;
+        flagWaiting = null;
         Sync.Kick();
     }
 
@@ -634,20 +637,30 @@ public sealed class Journal : IDisposable
     /// <summary>A "Flag it in game" from the site waiting for a calm moment, and when it was asked.</summary>
     private DateTime? flagWaiting;
 
+    /// <summary>How far the site's clock was ahead of this PC's when the waiting flag was heard.</summary>
+    private TimeSpan flagSkew;
+
     /// <summary>The site asked for the flag (the poll's answer): kept until calm, once per request (FlagPoll).</summary>
-    private void OnFlagAsked(string key, DateTime at)
+    private void OnFlagAsked(string key, DateTime at, TimeSpan skew)
     {
         if (key != characterKey || Memory is not { } memory) return;
-        if (!FlagPoll.Wanted(at, memory.FlaggedFromSite, DateTime.UtcNow)) return;
+        if (!FlagPoll.Wanted(at, memory.FlaggedFromSite, DateTime.UtcNow, skew)) return;
         if (flagWaiting is { } waiting && waiting >= at) return;
         flagWaiting = at;
+        flagSkew = skew;
     }
 
-    /// <summary>The waiting flag, once the game's calm: the map flag on the step, the tracker's ribbon dropped.</summary>
+    /// <summary>
+    /// The waiting flag, once the game's calm and the story's read (just after login it isn't yet: the flag
+    /// would only say "Nothing to flag"): the map flag on the step, the tracker's ribbon dropped. One that
+    /// waited past its freshness (a long duty) is let go, as the site would.
+    /// </summary>
     private void FlagFromSite(DateTime now)
     {
         if (flagWaiting is not { } at || InGame.Busy || Memory is not { } memory) return;
+        if (Story.Now == null && !Story.Broken && FlagPoll.Wanted(at, memory.FlaggedFromSite, now, flagSkew)) return;
         flagWaiting = null;
+        if (!FlagPoll.Wanted(at, memory.FlaggedFromSite, now, flagSkew)) return;
         memory.FlaggedFromSite = at;
         MemoryChanged();
         FlagNext();
@@ -871,14 +884,16 @@ public sealed class Journal : IDisposable
         talk.Line -= OnTalk;
         Safely(talk.Dispose);
         Safely(Recorder.Dispose);
+        Safely(Photos.Dispose);
+        Safely(Story.Dispose);
+        // The Codex's fetch stops before the shared connection is let go; then every call stops, and a
+        // worker already writing the queue after an answer is waited for, before the queue's last write.
+        Safely(Codex.Dispose);
+        Safely(Sync.Dispose);
         // The session under way stays open: a reload picks it up again (a long gap ends it then).
         if (clock.Current is { } cur) Safely(() => Queue.PutSession(cur));
         Safely(Queue.Flush);
         if (memoryDirty) Safely(Config.Save);
-        Safely(Photos.Dispose);
-        Safely(Story.Dispose);
-        Safely(Codex.Dispose);
-        Safely(Sync.Dispose);
     }
 
     private static void Safely(Action a)

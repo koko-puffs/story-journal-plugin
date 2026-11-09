@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Net;
 using System.Numerics;
 using System.Text.Json.Nodes;
 using StoryJournal.Core;
@@ -161,6 +162,39 @@ public class FlagPollTests
         // A site clock a little ahead is fine.
         Assert.True(FlagPoll.Wanted(Now.AddMinutes(1), null, Now));
         Assert.Equal(TimeSpan.FromSeconds(30), FlagPoll.Every);
+    }
+
+    [Fact]
+    public void AFlagThatWaitedPastItsFreshnessIsLetGo()
+    {
+        // Asked during a long duty: still waiting 16 minutes on, it's no longer for now.
+        var asked = Now.AddMinutes(-1);
+        Assert.True(FlagPoll.Wanted(asked, null, Now.AddMinutes(10)));
+        Assert.False(FlagPoll.Wanted(asked, null, Now.AddMinutes(15)));
+        // A PC clock 20 minutes slow: judged on the site's clock (from the answer's `now`), still fresh.
+        var slow = TimeSpan.FromMinutes(20);
+        Assert.True(FlagPoll.Wanted(asked, null, Now.AddMinutes(1) - slow, slow));
+        Assert.False(FlagPoll.Wanted(asked, null, Now.AddMinutes(1) - slow));
+        // …and one 30 minutes fast: still fresh too.
+        Assert.True(FlagPoll.Wanted(asked, null, Now.AddMinutes(31), TimeSpan.FromMinutes(-30)));
+        Assert.Equal(new DateTime(2026, 11, 9, 20, 2, 0, DateTimeKind.Utc), FlagPoll.ReadNow("{\"flag\":null,\"now\":\"2026-11-09T20:02:00Z\"}"));
+        Assert.Null(FlagPoll.ReadNow("{\"flag\":null}"));
+    }
+
+    [Fact]
+    public void ThePollFollowsTheSitesAnswer()
+    {
+        Assert.Equal(PollStep.Done, FlagPoll.Decide(new RpcResult(true, "{\"flag\":null}", null)));
+        // The token, or switched off on the site: as every call (relink, or wait).
+        Assert.Equal(PollStep.Refused, FlagPoll.Decide(SiteRpc.Read(HttpStatusCode.BadRequest, """{"message":"No.","hint":"token"}""")));
+        Assert.Equal(PollStep.Refused, FlagPoll.Decide(SiteRpc.Read(HttpStatusCode.Forbidden, """{"message":"Off.","hint":"off"}""")));
+        // Too often, or a key the site won't take (it won't next time either): wait a while, not every 30 s.
+        Assert.Equal(PollStep.Hold, FlagPoll.Decide(SiteRpc.Read(HttpStatusCode.BadRequest, """{"message":"Too often.","hint":"rate"}""")));
+        Assert.Equal(PollStep.Hold, FlagPoll.Decide(SiteRpc.Read(HttpStatusCode.BadRequest, """{"message":"Which?","hint":"data"}""")));
+        // No answer, the site's trouble, an older site without the call: back off quietly.
+        Assert.Equal(PollStep.Retry, FlagPoll.Decide(new RpcResult(false, null, "Couldn't reach the site.", Unreachable: true)));
+        Assert.Equal(PollStep.Retry, FlagPoll.Decide(SiteRpc.Read(HttpStatusCode.InternalServerError, "oops")));
+        Assert.Equal(PollStep.Retry, FlagPoll.Decide(SiteRpc.Read(HttpStatusCode.NotFound, "{}")));
     }
 }
 

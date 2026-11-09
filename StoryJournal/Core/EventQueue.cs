@@ -568,10 +568,11 @@ public sealed class EventQueue
                 foreach (var x in copies) a.Add(x.ToDisk());
                 WriteAtomically(SessionsFile, a.ToJsonString(Json.Compact));
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception)
             {
                 // Written with the next change (and events and photos whose session's details are lost
-                // still go, with a session made from their times).
+                // still go, with a session made from their times). Whatever it was: a writer that threw
+                // would stay "running" for ever, and sessions.json would never be written again.
             }
             lock (gate) sessionsWritten = wanted;
         }

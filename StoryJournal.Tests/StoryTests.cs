@@ -425,6 +425,31 @@ public class CodexV2Tests
     }
 
     [Fact]
+    public void AGateThatCantBeReadKeepsTheLayerShut()
+    {
+        // As the site's model/codex.ts: a gate written but not readable shuts the layer to all but
+        // spoilers off; it never opens it to everyone once its entry's seen.
+        var x = Codex.Read("""
+        { "version": 2, "entries": [ { "key": "odd", "kind": "lore", "name": "Odd", "aliases": [], "layers": [
+            { "text": "Quest 0.", "source": "codex", "quest": 0 },
+            { "text": "Quest as words.", "source": "codex", "quest": "66537" },
+            { "text": "Chapter -1.", "source": "synopsis", "chapter": -1 },
+            { "text": "Expansion -1.", "source": "notes", "expansion": -1 },
+            { "text": "Complete, yes.", "source": "occult", "complete": "yes" },
+            { "text": "Spoilers strict.", "source": "card", "spoilers": "strict" },
+            { "text": "No gate.", "source": "codex", "quest": null, "complete": false },
+            { "text": "Quest 66537.", "source": "codex", "quest": 66537 }
+        ] } ] }
+        """);
+        var e = x.Entries.Single();
+        var seen = new HashSet<string> { "odd" };
+        var all = G(Spoilers.Gentle, 5, true, new uint[] { 66537 }, new uint[] { 1 });
+        Assert.Equal(new[] { "No gate.", "Quest 66537." }, x.Layers(e, new List<string>(), seen, all).Select(l => l.Text));
+        Assert.All(e.Layers.Take(6), l => Assert.True(l.SpoilersOff));
+        Assert.Equal(8, x.Layers(e, new List<string>(), NoneSeen, G(Spoilers.Off)).Count);
+    }
+
+    [Fact]
     public void ALayerWithNoGateWaitsForItsEntryToBeSeen()
     {
         Assert.Empty(Texts("aether", NoneSeen, G()));

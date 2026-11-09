@@ -141,7 +141,8 @@ public sealed class SiteSync : IDisposable
     public event Action<Guid>? SessionRefused;
 
     /// <summary>The site asked for the map flag ("Flag it in game"): the character's key and when it was asked (FlagPoll).</summary>
-    public event Action<string, DateTime>? FlagAsked;
+    /// <summary>(The character, when the site was asked, how far the site's clock is ahead of this PC's.)</summary>
+    public event Action<string, DateTime, TimeSpan>? FlagAsked;
 
     /// <summary>Who to say hello for, and the session to send the main story's reading with (framework thread).</summary>
     public Func<HelloFor?>? Character { get; set; }
@@ -160,6 +161,9 @@ public sealed class SiteSync : IDisposable
         notes.Reset();
         theories.Reset();
         photos.Reset();
+        // (A poll out now answers for the earlier link and is let go: without this its pace would wait
+        // for that answer for ever, and Flag it in game would stop until the plugin's reloaded.)
+        poll.Reset();
         offUntil = null;
         probing = null;
         progressHeld = null;
@@ -254,7 +258,18 @@ public sealed class SiteSync : IDisposable
         site.Call("sj_plugin_hello", new JsonObject { ["p_character"] = character }).ContinueWith(t =>
         {
             var r = t.IsCompletedSuccessfully ? t.Result : new RpcResult(false, null, "Couldn't reach the site.", Unreachable: true);
-            var answer = r.Ok ? HelloAnswer.Read(r.Body) : null;
+            HelloAnswer? answer = null;
+            try
+            {
+                answer = r.Ok ? HelloAnswer.Read(r.Body) : null;
+            }
+            catch (Exception ex)
+            {
+                // An answer that can't be read is a failed hello (tried again after the backoff), never
+                // one left without an answer, which would stop hello until the plugin's reloaded.
+                Services.Log.Warning(ex, "Story Journal couldn't read the site's answer to hello");
+                r = new RpcResult(false, null, "The site's answer couldn't be read.");
+            }
             answers.Enqueue(() =>
             {
                 if (gen != generation) return;
@@ -316,16 +331,33 @@ public sealed class SiteSync : IDisposable
         {
             var r = t.IsCompletedSuccessfully ? t.Result : new RpcResult(false, null, "Couldn't reach the site.", Unreachable: true);
             var flag = r.Ok ? FlagPoll.Read(r.Body) : null;
+            // The site's clock against this PC's, measured as the answer comes (half a call's trip off at most).
+            var skew = r.Ok && FlagPoll.ReadNow(r.Body) is { } siteNow ? siteNow - DateTime.UtcNow : TimeSpan.Zero;
             answers.Enqueue(() =>
             {
                 if (gen != generation) return;
-                if (r.Ok || r.Hint == "data")
+                var now = DateTime.UtcNow;
+                switch (FlagPoll.Decide(r))
                 {
-                    poll.Done(true, DateTime.UtcNow);
-                    if (flag is { } at) FlagAsked?.Invoke(key, at);
-                    return;
+                    case PollStep.Done:
+                        poll.Done(true, now);
+                        if (flag is { } at) FlagAsked?.Invoke(key, at, skew);
+                        break;
+                    case PollStep.Hold:
+                        // A key the site doesn't take (it won't take it next time either), or too often:
+                        // let go, and asked again only after a while.
+                        poll.RateLimited(now, r.Hint == "rate" ? SyncPolicy.RateWait : SyncPolicy.OffWait);
+                        break;
+                    case PollStep.Refused:
+                        // The token, or Story Journal switched off on the site: as every call.
+                        Refused(r, poll);
+                        break;
+                    default:
+                        // No answer, the site's trouble: the poll backs off on its own. It isn't the
+                        // journal's problem to show (the header would say it until the next sync).
+                        poll.Done(false, now);
+                        break;
                 }
-                Refused(r, poll);
             });
         }, TaskScheduler.Default);
     }
@@ -348,7 +380,7 @@ public sealed class SiteSync : IDisposable
             && !(progressSent.TryGetValue(who.Key, out var last) && last == text))
             progressText = text;
         var open = progressText != null ? OpenSession?.Invoke()?.Copy() : null;
-        Task.Run(async () =>
+        syncWork = Task.Run(async () =>
         {
             try
             {
@@ -609,8 +641,8 @@ public sealed class SiteSync : IDisposable
     }
 
     /// <summary>
-    /// One of the notes' or theories' calls: done (or refused for good as bad data: then it's let go, said
-    /// once) leaves the list; "gone" is the caller's (<paramref name="gone"/>: rest, or set aside), and
+    /// One of the notes' or theories' calls: done (or refused for good as bad data or too big: then it's let
+    /// go, said once) leaves the list; "gone" is the caller's (<paramref name="gone"/>: rest, or set aside), and
     /// what comes after goes on; anything else waits for the pace's backoff.
     /// </summary>
     private void Send(string function, JsonObject args, int gen, Pace pace, Action ok, Action gone)
@@ -622,7 +654,8 @@ public sealed class SiteSync : IDisposable
             {
                 if (gen != generation) return;
                 var at = DateTime.UtcNow;
-                if (r.Ok || r.Hint == "data")
+                // Refused for good: bad data, or more than the site keeps (a resend is the same size).
+                if (r.Ok || r.Hint is "data" or "size")
                 {
                     if (!r.Ok)
                     {
@@ -668,7 +701,7 @@ public sealed class SiteSync : IDisposable
         var token = site.Token;
         var http = site.Http;
         var cancel = site.Closing;
-        Task.Run(async () =>
+        photoWork = Task.Run(async () =>
         {
             try
             {
@@ -741,5 +774,25 @@ public sealed class SiteSync : IDisposable
         });
     }
 
-    public void Dispose() => site.Dispose();
+    /// <summary>The sync's and the photo's workers (the queue's disk work after an answer), so unloading can wait for them.</summary>
+    private Task syncWork = Task.CompletedTask;
+
+    private Task photoWork = Task.CompletedTask;
+
+    /// <summary>
+    /// Stops every call under way, then waits a moment for a worker already writing the queue after an
+    /// answer, so a reload's queue isn't written by this one's worker after it's opened.
+    /// </summary>
+    public void Dispose()
+    {
+        site.Dispose();
+        try
+        {
+            Task.WaitAll(new[] { syncWork, photoWork }, TimeSpan.FromSeconds(3));
+        }
+        catch (Exception)
+        {
+            // A worker that failed said so itself.
+        }
+    }
 }

@@ -165,10 +165,19 @@ public sealed class Codex
                         layers.Add(new CodexLayer(text, needs, expansion));
                         continue;
                     }
-                    var quest = l.TryGetProperty("quest", out var q) && Long(q) is { } qv && qv > 0 && qv <= uint.MaxValue ? QuestIds.Row((uint)qv) : (uint?)null;
-                    var chapter = l.TryGetProperty("chapter", out var c) && Long(c) is { } cv && cv > 0 && cv <= uint.MaxValue ? (uint)cv : (uint?)null;
+                    // A gate written but not readable (0, a string, a negative number, "complete": "yes",
+                    // "spoilers": "strict") keeps the layer shut to all but spoilers off, as the site's
+                    // model/codex.ts does: never opened to everyone.
+                    var unreadable = false;
+                    var quest = Gate(l, "quest", 1, ref unreadable) is { } qv && qv <= uint.MaxValue ? QuestIds.Row((uint)qv) : (uint?)null;
+                    var chapter = Gate(l, "chapter", 1, ref unreadable) is { } cv && cv <= uint.MaxValue ? (uint)cv : (uint?)null;
+                    if (Gate(l, "expansion", 0, ref unreadable) is { } ev) expansion = (int)Math.Min(ev, 99);
+                    else expansion = null;
                     var complete = l.TryGetProperty("complete", out var done) && done.ValueKind == JsonValueKind.True;
+                    if (l.TryGetProperty("complete", out var cp) && cp.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null)) unreadable = true;
                     var off = Str(l, "spoilers") == "off";
+                    if (l.TryGetProperty("spoilers", out var sp) && sp.ValueKind != JsonValueKind.Null && !off) unreadable = true;
+                    off |= unreadable;
                     var gated = quest != null || chapter != null || expansion != null || complete || off;
                     layers.Add(new CodexLayer(text, needs, expansion, Pooled(Str(l, "source") ?? string.Empty), quest, chapter, complete, off, !gated));
                 }
@@ -177,6 +186,18 @@ public sealed class Codex
                 Str(e, "whisper"), Str(e, "subtitle"), Str(e, "image")));
         }
         return new Codex(entries, (int)version);
+    }
+
+    /// <summary>
+    /// A version 2 gate's number, as the site reads it: an integer of at least <paramref name="least"/>. Absent
+    /// or null: no gate. Anything else: no number, and <paramref name="unreadable"/> is set.
+    /// </summary>
+    private static long? Gate(JsonElement layer, string property, long least, ref bool unreadable)
+    {
+        if (!layer.TryGetProperty(property, out var g) || g.ValueKind == JsonValueKind.Null) return null;
+        if (g.ValueKind == JsonValueKind.Number && g.TryGetInt64(out var n) && n >= least) return n;
+        unreadable = true;
+        return null;
     }
 
     private static string? Str(JsonElement o, string property) =>

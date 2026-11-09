@@ -35,7 +35,7 @@ finished quest, unless they turn spoilers off on the site:
 ## Things to know
 
 - **It's new and untested in the game.** It builds against Dalamud 15 (API 15) and its game-free
-  code is tested (241 tests), but the readings of the game below marked *unverified* have not been
+  code is tested (244 tests), but the readings of the game below marked *unverified* have not been
   seen working in a real client. Expect rough edges, and say what's wrong.
 - **What leaves the game**: the events below, the main story's reading, and your own words (notes,
   theories, the end of session card). Only the line of dialogue you save leaves, never the chat.
@@ -66,7 +66,7 @@ The calls, as the migration has them (arguments `p_token`, `p_key`, `p_session`,
 | `sj_plugin_note(p_token, p_key, p_note)` | as soon as it can | `{ id, session?, body, subject? }`. A note waits while its session is still in the queue (the queue's sent first), so it's linked to it; it goes without `session` only when the site refused that session or it's gone from here. |
 | `sj_plugin_theory(p_token, p_key, p_theory)` | as soon as it can | `{ id, body, subject?, checkAfter?, checkAt? }`: `checkAt` the main-story index to ask at as this PC worked it out, `checkAfter` main-story quests from sealing (1–5000) for older sites. A theory sealed before the story's first reading after login waits until its index is worked out. |
 | `sj_plugin_theory_answer(p_token, p_id, p_status)` | when you settle one | `called`, `partly` (partly right), `missed`, `changed` (or `sealed` again: `Core/TheoryAnswers.cs`, tested). Theories sealed here go before answers, and an answer to one waits until the theory has gone (the site would say `gone` and the answer would be lost; and a theory that reaches the site after its ask-at point is kept there with no `check_at`, so its answer has to follow it). |
-| `sj_plugin_poll(p_token, p_key)` | about every 30 s while you're logged in and linked (not on a loading screen) | The site's **Flag it in game** (Today's button): answered `{ flag: ISO \| null }`, the moment of the last ask in the last 15 minutes. A flag newer than the last this character acted on (`CharacterMemory.FlaggedFromSite`) and not older than 15 minutes is acted on once the game's calm (not in combat, a duty, a cutscene or a loading screen): the map flag on the current step (`MapFlag`), and the tracker's ribbon dropped (unfolded and unrolled again). `Core/FlagPoll.cs` decides (tested). Refusals: `token`, `off`, `rate` as below; `data` (a key it doesn't take) is let go. |
+| `sj_plugin_poll(p_token, p_key)` | about every 30 s while you're logged in and linked (not on a loading screen) | The site's **Flag it in game** (Today's button): answered `{ flag: ISO \| null, now: ISO }`, the moment of the last ask in the last 15 minutes and the site's own time (freshness is judged on the site's clock, from `now`, so a PC clock that's off neither loses nor replays a flag; without `now`, the PC's). A flag newer than the last this character acted on (`CharacterMemory.FlaggedFromSite`) and not older than 15 minutes is acted on once the game's calm (not in combat, a duty, a cutscene or a loading screen) and the story's been read after login: the map flag on the current step (`MapFlag`), and the tracker's ribbon dropped (unfolded and unrolled again). One that waited past its 15 minutes (a long duty) is let go; one asked for before a logout, or for another character, is forgotten. `Core/FlagPoll.cs` decides (tested). Refusals: `token` and `off` as below; `rate` waits 5 minutes and `data` (a key it doesn't take) 10, the poll only; no answer or the site's trouble backs the poll off (5 s, doubling to 5 minutes) without being shown as the journal's problem. |
 | `POST /functions/v1/sj-plugin-photo` | once the site has the photo's session | multipart: `token, character, session, id, at, caption, image` (a JPEG, ≤ 6 MB, ≤ 8192 px a side), header `apikey`. Answers `{ id, data }` or `{ message, hint }`. |
 
 Each kind of call is paced under the site's hourly limits for a person (hello 240, sync 600, note 240,
@@ -98,6 +98,8 @@ in the log), so syncing never stops waiting for an answer that isn't coming.
   than the site takes, or it belongs to someone else), the session, all its events and its photos are
   set aside (said once), and so is anything recorded for it afterwards; if it's the session under way,
   it ends and a new one starts. If not, only the event is set aside.
+- `size` and `data` on a note, theory or answer: refused for good (sending it again won't change it):
+  let go, said once, so it doesn't hold up those after it.
 - `gone`: the thing isn't there (yet). A note or theory for a character the site hasn't heard of
   rests until that character's next sync (or 10 minutes), without holding up the others; if the site
   had heard of the character since the plugin loaded (it dropped it), or after 5 tries, it's set aside
@@ -352,6 +354,9 @@ worker).
 
 With spoilers off every entry and every layer shows. Collections (`kind: 'collection'`: Triple
 Triad cards, minions, mounts, orchestrion rolls) only with spoilers off, whatever their layers say.
+A gate the file has but that can't be read (a quest or chapter that isn't a whole number above 0,
+an expansion below 0, `complete` that isn't true or false, `spoilers` other than `off`) shuts its
+layer to all but spoilers off, as the site's `model/codex.ts` does: never opens it to everyone.
 A version 1 file reads as it did: every layer waits for its entry to be seen, its `needs` seen too and
 its expansion reached.
 
@@ -542,7 +547,9 @@ sheets are read from both (they're read-only).
 Every game read is guarded (null pointers, not logged in, a loading screen, a patch that moved
 something): it answers "nothing" rather than throwing. Every handler (framework update, login and
 logout, the duty's events, the addon lifecycle's listeners, commands, the UI builder's) is let go of
-in `Dispose`, which also keeps the session under way open for a reload to pick up.
+in `Dispose`, which also keeps the session under way open for a reload to pick up. At unload every
+call to the site is stopped first, and a sync or photo worker already writing the queue after an
+answer is waited for (3 s at most), so it doesn't write the queue after a reload has opened it.
 
 ## Layout
 
@@ -615,7 +622,8 @@ until it's made: until then the download fails, so release before telling anyone
 - When a quest brings a theory due, a toast with a cracked seal says the story answered it. Who's that? draws a
   red tether from whoever you target to its card.
 - **Flag it in game** from the site: Today's button sets the map flag on your step (and drops the
-  tracker's ribbon) within about 30 seconds (`sj_plugin_poll`).
+  tracker's ribbon) within about 30 seconds (`sj_plugin_poll`), once the story's read after login; an ask
+  older than 15 minutes is let go. The poll keeps going after linking again.
 - The main story's reading sends the step's map spot (`current.spot`), shown on the site's Today.
 - Theories can be settled as **Partly** (partly right).
 - Quiet times: **Hold it all while I'm in a party**.

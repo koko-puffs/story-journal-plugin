@@ -188,6 +188,7 @@ public sealed class Photos : IDisposable
         {
             var (jpeg, width, height, why) = await Make(wrap, job.Cancel.Token).ConfigureAwait(false);
             // Given up meanwhile (you were told to take it again): not kept.
+            // (Its token source is left to the collector then: the framework thread may be cancelling it.)
             if (Interlocked.CompareExchange(ref job.State, Making.Keeping, Making.Working) != Making.Working) return;
             job.Cancel.Dispose();
             QueuedPhoto? kept = null;
@@ -198,8 +199,9 @@ public sealed class Photos : IDisposable
                     kept = new QueuedPhoto(Guid.NewGuid(), ask.Session, ask.Character, ask.At, ask.Caption, width, height);
                     queue.AddPhoto(kept, jpeg);
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                catch (Exception ex)
                 {
+                    // Whatever it was, the framework thread hears (else "A photo is being taken" for ever).
                     Services.Log.Error(ex, "Story Journal couldn't keep the photo");
                     kept = null;
                     why = "Couldn't keep the photo on this PC (see /xllog).";

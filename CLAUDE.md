@@ -22,7 +22,8 @@
 
 - The database functions the plugin calls (`sj_plugin_hello`, `sj_plugin_sync`, `sj_plugin_note`,
   `sj_plugin_theory`, `sj_plugin_theory_answer`, and `sj_plugin_poll` for the site's "Flag it in
-  game": `{ flag: ISO | null }`, null when there's no ask in the last 15 minutes, at most 240 an hour)
+  game": `{ flag: ISO | null, now: ISO }`, null when there's no ask in the last 15 minutes, `now` the
+  site's own time, at most 240 an hour)
   and the photo function (`sj-plugin-photo`) are in kokos-tools: `supabase/migrations/` (the
   `sj_story_journal` migration and those after it) and `supabase/functions/sj-plugin-photo/index.ts`.
   Their arguments, answers, refusal hints (`token`, `off`, `rate`, `size`, `data`, `gone`) and hourly
