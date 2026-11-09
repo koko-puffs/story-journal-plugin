@@ -615,7 +615,7 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## Release notes
 
-### 0.2.0 (unreleased)
+### 0.2.0
 
 - **Ink & Ribbon**, the site's new look: warm ink, paper words, the cherry red as the ribbon and the
   wax, candle gold for your own words; Fraunces and Literata shipped beside Geist.
@@ -640,6 +640,11 @@ until it's made: until then the download fails, so release before telling anyone
 - Theories can be settled as **Partly** (partly right).
 - Quiet times: **Hold it all while I'm in a party**.
 - `/sj ask <name>` opens the Codex on a name.
+- Fixes: a note refused for size no longer holds up the notes after it; a full notebook (5,000 notes) holds
+  only the notes, not the evening's sync, photos and the flag; hello, photos and the queue's writer can't get
+  stuck; unloading waits for writes in flight; a Codex layer whose gate can't be read stays shut; a flag
+  request is judged fresh on the site's clock, forgotten at logout or on another character, and says so if
+  it went stale waiting for your story to be read.
 
 ### 0.1.1
 
