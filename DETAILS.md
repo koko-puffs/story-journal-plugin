@@ -622,10 +622,13 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## Release notes
 
-### 0.2.2 (unreleased)
+### 0.2.3 (unreleased)
 
 - The rail's sliding red bar is gone (it lagged behind and got dragged when the window moved): the
   open place is raised, its picture red.
+
+### 0.2.2
+
 - The main story's chapters are read right again: 0.2.0 put nearly the whole story in A Realm
   Reborn's first chapter and Dawntrail's last quests in its second (the Now tab's chapter, the
   tracker's, milestones and the chapter sent to the site).
