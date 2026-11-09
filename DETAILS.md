@@ -618,6 +618,11 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## Release notes
 
+### 0.2.1 (unreleased)
+
+- Photos are much smaller: 1920 at most on the long side, under 900 KB (were 2560 and up to 5 MB),
+  as the site now keeps 1 MB a photo, 1,000 photos and 500 MB an account.
+
 ### 0.2.0
 
 - **Ink & Ribbon**, the site's new look: warm ink, paper words, the cherry red as the ribbon and the
@@ -643,8 +648,6 @@ until it's made: until then the download fails, so release before telling anyone
 - Theories can be settled as **Partly** (partly right).
 - Quiet times: **Hold it all while I'm in a party**.
 - `/sj ask <name>` opens the Codex on a name.
-- Photos are much smaller: 1920 at most on the long side, under 900 KB (were 2560 and up to 5 MB),
-  as the site now keeps 1 MB a photo, 1,000 photos and 500 MB an account.
 - Fixes: a note refused for size no longer holds up the notes after it; a full notebook (5,000 notes) holds
   only the notes, not the evening's sync, photos and the flag; hello, photos and the queue's writer can't get
   stuck; unloading waits for writes in flight; a Codex layer whose gate can't be read stays shut; a flag
