@@ -622,11 +622,13 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## Release notes
 
-### 0.2.1 (unreleased)
+### 0.2.2 (unreleased)
 
 - The main story's chapters are read right again: 0.2.0 put nearly the whole story in A Realm
   Reborn's first chapter and Dawntrail's last quests in its second (the Now tab's chapter, the
   tracker's, milestones and the chapter sent to the site).
+
+### 0.2.1
 - Photos are much smaller: 1920 at most on the long side, under 900 KB (were 2560 and up to 5 MB),
   as the site now keeps 1 MB a photo, 1,000 photos and 500 MB an account.
 
