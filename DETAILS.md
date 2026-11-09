@@ -225,17 +225,21 @@ code works in Glamour Studio's).
 - Which opening a starting city begins: `IPlayerState.StartTown` is a `Town` row (1 Limsa Lominsa,
   2 Gridania, 3 Ul'dah); the opening is the `ScenarioType` whose letter starts the town's English
   name, which is the same number (checked against the sheets; the log line lists the pairs).
-- Chapters: the scenario tree's `QuestChapter` row (or the quest's own `QuestChapter` row), its
-  `Redo` row's `QuestRedoChapterUI.ChapterName`. If that names fewer than half the quests, chapters
-  instead start at each `QuestRedoChapterUI.Quest` and run on to the next.
+- Chapters: the `QuestChapter` row whose `Quest` is the quest (the first one), its `Redo` row's
+  `QuestRedoChapterUI.ChapterName`. `QuestChapter`'s rows are numbered in their own order, not by
+  quest: 0.2.0 took the scenario tree's `QuestChapter` for a row number and so put nearly the whole
+  story in A Realm Reborn's first chapter (and Dawntrail's last quests in its second). If that
+  names fewer than half the quests, chapters instead start at each `QuestRedoChapterUI.Quest` and
+  run on to the next. (The site tells the chapters again from its own files when it has them, so a
+  reading like 0.2.0's shows right there regardless.)
 - The duty each quest unlocks: `InstanceContentUnlock` → `InstanceContent.ContentFinderCondition`:
   its name, its `ContentType` in a word, its `ClassJobLevelRequired`.
 - Expansions: `ExVersion`'s names.
 
 *Verified* (XIVAPI, current data): every `ScenarioTree` row is a main-story quest's id (65536 and
-up), and `Unknown2` and `Type` are as above. *Unverified*: the meaning of `PreviousQuestJoin`'s
-values; that `QuestChapter.Redo` and `QuestRedoChapterUI` share ids (the fallback is there because
-of this); that `QuestRedoChapterUI.Quest` is a chapter's first quest.
+up), and `Unknown2` and `Type` are as above; `QuestChapter`'s `Quest` and `Redo` give each quest its
+`QuestRedoChapterUI` row (the site's extractor reads them so: 204 chapters, The World Locked in Ice
+in Dawntrail - Part 4). *Unverified*: the meaning of `PreviousQuestJoin`'s values; that `QuestRedoChapterUI.Quest` is a chapter's first quest.
 Check the log line after loading and the Now tab's chapter against the game's New Game+ list.
 
 **The player's road** (`MsqCatalog.Path`, tested): quests not done that the player can't be on are
@@ -620,6 +624,9 @@ until it's made: until then the download fails, so release before telling anyone
 
 ### 0.2.1 (unreleased)
 
+- The main story's chapters are read right again: 0.2.0 put nearly the whole story in A Realm
+  Reborn's first chapter and Dawntrail's last quests in its second (the Now tab's chapter, the
+  tracker's, milestones and the chapter sent to the site).
 - Photos are much smaller: 1920 at most on the long side, under 900 KB (were 2560 and up to 5 MB),
   as the site now keeps 1 MB a photo, 1,000 photos and 500 MB an account.
 

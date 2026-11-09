@@ -21,9 +21,11 @@ namespace StoryJournal.Game;
 /// will do"), <c>QuestLock</c>, the expansion, the level.</item>
 /// <item>Which opening each starting city (<c>Town</c>) begins: the <c>ScenarioType</c> row whose letter
 /// starts the town's English name (L, G, U: Limsa Lominsa 1, Gridania 2, Ul'dah 3).</item>
-/// <item>Chapters: the scenario tree's <c>QuestChapter</c> (or the quest's own <c>QuestChapter</c> row),
-/// its <c>Redo</c> row's <c>QuestRedoChapterUI.ChapterName</c>; when that names too few, a chapter starts
-/// at each <c>QuestRedoChapterUI.Quest</c> and runs on to the next.</item>
+/// <item>Chapters: the <c>QuestChapter</c> row whose <c>Quest</c> is the quest (its rows are numbered in
+/// their own order, not by quest: 0.2.0 took the scenario tree's <c>QuestChapter</c> for a row number and
+/// put nearly the whole story in the first chapter), its <c>Redo</c> row's
+/// <c>QuestRedoChapterUI.ChapterName</c>; when that names too few, a chapter starts at each
+/// <c>QuestRedoChapterUI.Quest</c> and runs on to the next.</item>
 /// <item>The duty each unlocks: <c>InstanceContentUnlock</c> → <c>InstanceContent.ContentFinderCondition</c>.</item>
 /// </list>
 /// What's unverified in the game (the join's values, the chapter rows' ids) is said in DETAILS.md.
@@ -59,19 +61,20 @@ public static class MsqReader
             }
         }
 
-        var chapterSheet = Services.Data.GetExcelSheet<QuestChapter>();
         var redoUi = Services.Data.GetExcelSheet<QuestRedoChapterUI>();
+        // Each quest's chapter (QuestRedoChapterUI row), by QuestChapter's Quest: the first row naming it.
+        var redoOf = new Dictionary<uint, uint>();
+        foreach (var row in Services.Data.GetExcelSheet<QuestChapter>())
+            if (row.Quest.RowId != 0 && row.Redo.RowId != 0) redoOf.TryAdd(row.Quest.RowId, row.Redo.RowId);
         var chapters = new Dictionary<uint, MsqChapter>();
         var quests = new List<MsqQuest>();
         var named = 0;
-        foreach (var (q, chapterRow) in rows.Values)
+        foreach (var (q, _) in rows.Values)
         {
             uint chapter = 0;
             try
             {
-                var redo = 0u;
-                if (chapterRow != 0 && chapterSheet.GetRowOrDefault(chapterRow) is { } c1) redo = c1.Redo.RowId;
-                if (redo == 0 && chapterSheet.GetRowOrDefault(q.RowId) is { } c2) redo = c2.Redo.RowId;
+                var redo = redoOf.TryGetValue(q.RowId, out var r) ? r : 0u;
                 if (redo != 0 && redoUi.GetRowOrDefault(redo) is { } ui && !ui.ChapterName.IsEmpty)
                 {
                     chapter = redo;
