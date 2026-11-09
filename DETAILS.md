@@ -35,7 +35,7 @@ finished quest, unless they turn spoilers off on the site:
 ## Things to know
 
 - **It's new and untested in the game.** It builds against Dalamud 15 (API 15) and its game-free
-  code is tested (194 tests), but the readings of the game below marked *unverified* have not been
+  code is tested (241 tests), but the readings of the game below marked *unverified* have not been
   seen working in a real client. Expect rough edges, and say what's wrong.
 - **What leaves the game**: the events below, the main story's reading, and your own words (notes,
   theories, the end of session card). Only the line of dialogue you save leaves, never the chat.
@@ -279,7 +279,7 @@ sheet's row less 65536; both are handled (`QuestIds`). From these, on a worker (
   entry of the quest before, the people met named in it, and `spot { x, y }`: the step's place as the
   game's map shows it, one decimal ("X 11.0 Y 15.3": the Level row the step's to-do points at, through
   Dalamud's `MapUtil.WorldToMap`, read from the sheets with the rest on the worker; left out when the
-  game doesn't say, guarded so a surprise is just no spot); the next three duties
+  game doesn't say, guarded so a surprise is just no spot); `plugin`, this plugin's version ("0.2.0", from the assembly; the site says which plugin said hello); the next three duties
   (`questsAway` counts the current quest as 1); and a good place to stop, the nearer of the chapter's
   end and the quest before the next duty (the chapter when they're the same). Kept under the site's
   32 KB as the site measures it (jsonb's text, `Json.JsonbBytes`; made to fit 30,000): the chapters of
@@ -372,31 +372,43 @@ candle gold `#e9c47f` only for your own words. Three families: **Geist** for con
 **Fraunces** SemiBold and its italic to name things (titles, the greeting, big numbers), **Literata**
 Regular and its italic for anything read (why you're here, previously, the Codex; your own words in its
 italic). All shipped as static TTFs in `Resources/Fonts` with their OFL licences (ImGui can't use a
-variable font's axes: Fraunces is instanced at opsz 72, soft 60; Literata at opsz 14).
+variable font's axes: Fraunces is instanced at opsz 72, soft 60; Literata at opsz 14; the mock-up's Fraunces
+400 italic is drawn with the SemiBold italic shipped). Labels (kickers) are 10px, tracked +0.14em, a small dot
+for each " · "; a chapter's numeral is lower-case roman in Fraunces; the drop cap has a 48px Fraunces of its
+own. Controls are the mock-up's: buttons 32 tall with radius 8 (26 on a card's small row), Geist 600; the
+switch 32×18 (the deep red, a white knob, when on); the pick-one pill 32 tall; fields radius 8 (your own words
+on the quill's edge); chips raised with the line edge (the ribbon's or the quill's when they mean it). The
+windows are the leaf at 97%; the journal's title bar carries the small ribbon before "Story Journal" and, on
+the right, who's playing (on Now) or the open place.
 
 The motifs are draw-list shapes (`UI/Kit/Ink.cs`, the geometry in `Core/Shapes.cs`, tested): the
-**ribbon** (a rectangle down to its V's notch and a triangle each side, a darker band where it folds
-over the edge); the **wax seal** (an uneven twenty-point outline fixed per seal by its id, three filled
-circles dark to light, a fine ring, a highlight; cracked across in the card's colour once answered; a
-numeral or an icon on top); the **red thread** (a 2px line fading down) and its **knots** (outlined
-circles; the newest filled and ringed); the **margin rule** (1px red, gold for yours); the **stamp**
-(spaced capitals in a 1.5px box; the site's is pressed a little askew, ImGui's text can't turn, so it's
-straight); the **redaction** (a hatched bar with a dashed edge saying what kind of thing it is, "a trial
-· show"; pressed, the name). Colours are the site's tokens (`Palette`), the older names mapped onto
-them.
+**ribbon** (a rectangle down to its V's notch and a triangle each side; the bookmark runs from the deep red at
+its top to the ribbon's red 60% down, the tracker is the deep red; a darker band where it folds over the edge);
+the **wax seal** (an uneven twenty-point outline fixed per seal by its id, three filled circles dark to light, a
+fine ring, a highlight; once answered duller and cracked across in the card's colour, a tick on it; else a
+numeral or an icon on top); the **red thread** (a 2px line fading down, 8px in) and its **knots** (outlined
+circles on the ground's ink; the newest filled and ringed); the **margin rule** (1px red, gold for yours; a
+margin note's is 2px in the ribbon's full red); the **stamp** (spaced capitals in a 1.5px box; the site's is
+pressed a little askew, ImGui's text can't turn, so it's straight); the **redaction** (a hatched bar with a
+dashed edge saying what kind of thing it is, "a trial · show"; pressed, its ink lifts left to right over 650ms
+and the name's there). Cards with the site's leaf gradients (the bookmark, a milestone's band) draw them as
+ImGui can: a gradient can't be round, so the rounded top is the top colour and the gradient a rectangle under
+it. Colours are the site's tokens (`Palette`), the older names mapped onto them.
 
 **Motion** (`Core/Motion.cs`, tested; the site's motion.html, "the plugin moves the same, more
 quietly"): an `Anim` is a time from 0 to 1 eased by one of the site's four curves (`Ease.Settle`,
 `Ink`, `Weight`, `Leave`: the same cubic-béziers), applied to a window's alpha (`ImGuiStyleVar.Alpha`)
 and position, a ribbon's length or a seal's scale. Durations as the site's: press 120ms, step 220,
 turn 420, ink 650, wax 900, leaving 200. **Calm** (Settings) or Dalamud's reduced motion: everything is
-simply there. Nothing comes to you in combat, a duty, a cutscene or a loading screen (it waits).
+simply there. Nothing comes to you in combat, a duty, a cutscene or a loading screen (it waits), and then
+nothing moves either (`Ink.Busy`, set each frame: the game's busy, as motion.html's `Game.Busy`).
 
 - **The journal** (`MainWindow`, `/sj`): a rail down the left with the site's places, **Now**, **This
   evening**, **Codex** and **Notebook** (the evening's live dot, the Codex's count, the theories due or
   sealed), the story's progress at its foot (the volume, the chapter's numeral and percentage, a bar),
-  **Settings** (a gear) and the site. Narrower than 600px the rail folds to its pictures. Its red bar
-  slides to the place you pick (220ms, settle).
+  **Settings** (a gear) and the site. Narrower than 600px the rail folds to its pictures. The open place is
+  raised with a red bar inside its left edge, which slides to the place you pick (220ms, settle); the
+  evening's live dot says how long it's been under way.
   - *Now*: the chapter's numeral, the place and your level; the pace lock's warnings; **the bookmark**
     (a ribboned card, its ribbon dropping once for each quest): the quest, its step in a box with the
     place and its map spot and **Flag on map** (the one filled button), **why you're here** (ruled, in
@@ -408,25 +420,27 @@ simply there. Nothing comes to you in combat, a duty, a cutscene or a loading sc
     its key shown, Seal as theory, Save (Enter saves). Linking, when not linked.
   - *This evening*: the day and since when, "The evening so far", Save the line and Take a photo as
     buttons in its head; four tiles (played, quests, how much of the story it moved, photos); what
-    happened on the red thread, newest on top (a saved line in Literata's italic, "Codex +1" stamped on
-    someone met, a photo's place); whether the site has it all; **End the evening**.
+    happened on the red thread, newest on top (a knot, the time, the words with names in ink; a saved line
+    in Literata's italic, "Codex +1" stamped on someone met, a photo's place); whether the site has it all;
+    **End the evening**.
   - *Codex*: Ask the journal (`/sj ask <name>` opens it on a name); **near you** (the quest's people,
     the place you're in, who you last met) as chips; the open entry as a page: an arch with the
     initial, its kind and subtitle, its name, "Met · ch. iv · 2 days ago" stamped, each layer open so
-    far beside the day you met them (with where it's from in small words), the rest locked ("their page
-    fills in as you play"), what you wrote, a note about them, its page on the site; then everything
+    far beside the day you met them (with where it's from in small words; the plugin doesn't know the day
+    each layer opened, so only the first has one), the rest locked ("their page fills in as you play"), what you wrote, a note about them, its page on the site; then everything
     so far by kind (rows out of sight only spaced, not drawn).
   - *Notebook* (Notes and Theories, as the site calls them): two tabs, the red line sliding between.
     Theories: those due, to settle (Called it, Partly, Missed it, Changed my mind), then those sealed
-    here under wax (newest first; a seal just pressed drops once with its weight: 1.5 → 0.9 → 1, 900ms)
-    with when and where and "opens in about N quests", then those answered, the seal cracked and
-    stamped (Called it in green, Partly in gold, Not quite, Changed my mind); **Seal a theory** opens
-    the composer (asked about in 5, 10 or 25 quests, or not); the whole Notebook on the site. Notes: a
-    note in gold (and who it's about), notes waiting to send, those still open (from hello), ruled.
-  - *Settings*: below.
+    here under wax (newest first, still: a milestone's is the only seal pressed in game) with when and
+    where and "opens in about N quests", then those answered, the seal cracked with a tick and how it
+    went as a chip (Called it in green with a tick and a green edge, Partly in gold, Not quite, Changed
+    my mind); **Seal a theory** opens the composer (asked about in 5, 10 or 25 quests, or not); the whole
+    Notebook on the site. Notes: a note in gold (and who it's about), notes waiting to send, those still
+    open (from hello), each in a small box.
+  - *Settings*: below, in rows as the mock-up's (only Keys and Offline in boxes).
 - **Welcome back** (`WelcomeWindow`): after login, when the last evening (as hello says) ended at least
   the site's `welcomeHours` ago (0: every login), once the story's read. A page from your journal: a
-  red edge and the ribbon (dropping once), the day and how long away, "Welcome back, Koko.", the recap
+  deep red edge and the ribbon (dropping once), the day and how long away, "Welcome back, Koko.", the recap
   (three lines from hello's `recent`, as before) in Literata with a drop cap and the margin rule, your
   thought from the last end of the evening (else your newest open note) in candle gold above the step
   it was about, the step and its quest and place; **Flag it** (the one filled button), **Open the
@@ -434,33 +448,45 @@ simply there. Nothing comes to you in combat, a duty, a cutscene or a loading sc
   fades in (420ms, settle) and leaves up 8px (200ms); walking 8 yalms closes it. `/sj welcome` opens it.
 - **The tracker** (`TrackerWindow`) is a ribbon hanging from the top of the screen: the volume and its
   percentage, a white bar, the next step in Fraunces and where (with the map spot), then the next duty
-  (its kind inked on strict spoilers, its name otherwise) and a partner's pace lock. It unrolls with its
-  weight (650ms) when it shows, when it's unfolded, and when the site's Flag it in game drops it; its
-  chevron folds it to a short tab with the percentage (kept per character). Drag its head along the
+  (its kind inked on strict spoilers, its name otherwise) and a partner's pace lock in a warm gold. It
+  unrolls with its weight (650ms; its words wipe in with it, never fade) when it shows, when it's unfolded,
+  and when you flag the step (here, or from the site's Flag it in game); when a quest's done it rolls up
+  (160ms) and drops again with the new step, its progress line filling a little (650ms, ink); its chevron
+  folds it to a short tab with the percentage (kept per character). Drag its head along the
   top edge to move it (`TrackerAt`); its step opens the journal. Hidden in cutscenes and on loading
   screens. Off in Settings.
 - **Margin notes** (`ArrivalWindow`, `WhoWindow`): narrow cards with the red margin rule, sliding in
-  14px from the left as they fade in (420ms), fading as they go (600ms), one at a time. **Arrival**:
+  14px from the left as they fade in (420ms), fading as they go (600ms), one at a time (an arrival waits
+  while a Who's that? is up, and steps aside for one, coming back after). **Arrival**:
   "You arrived · first time", the place in Fraunces, two sentences from the Codex in Literata, More in
   the Codex, Fewer of these; the first time you reach a place (whispers *some*) or every time
   (*chatty*), never with *quiet*; it waits up to 2 minutes for a calm moment and holds 6 s (a second
   more for each ten words past twenty, 12 at most: `Journal.MarginNoteHold`). **Who's that?**: target
   someone you've met (not a player): "Someone you've met", their name, "Met · 2 days ago · here"
-  stamped, what you know, what you wrote (in gold), their Codex page.
+  stamped, what you know, what you wrote (in gold), their Codex page; a red tether runs from them on the
+  screen to the card (`InGame.TargetOnScreen`, the game's own projection).
 - **Toasts** (`ToastWindow`): what was kept, top right, 6 s each, click-through, sliding in 14px from
-  the right. Each has the motif of what it kept as its tile: a quote (a line saved), a camera (a photo),
-  a wax seal (a theory sealed or answered), a tick, a warning.
-- **Quick note** (`QuickNoteWindow`, its key or `/sj note`): an index card, ruled lines every 26px and
-  the red margin, your words in Literata's italic and candle gold as you type; **About** fills itself
-  with whoever you're looking at; Add to tonight's entry, or Seal as theory (asked about in 10 quests).
+  the right (420ms) and going quicker (200ms): a title and a small line ("Saved the line · Haurchefant · to
+  tonight's entry", "Photo taken · HUD hidden · to tonight's entry", "Theory sealed · Opens in about 5
+  quests"). Each has the motif of what it kept as its tile: a quote (a line saved, a note), a camera (a
+  photo), a wax seal (a theory sealed; cracked once answered), a tick, a warning. When a quest finished
+  brings a theory due, a toast with a cracked seal says "The story answered a theory · Open it on the
+  site?", once (`TheoryAnswers.JustAnswered`; those already due at login aren't told again).
+- **Quick note** (`QuickNoteWindow`, its key or `/sj note`): an index card (a warmer paper, the quill's
+  edge), ruled in faint gold, the red margin 38px in, your words in Literata's italic and candle gold as you
+  type, four lines of them (the rules follow the words' own line: ImGui can't space a field's lines to the
+  mock-up's 26px); **About** fills itself with whoever you're looking at, a chip you can type over; Add to
+  tonight's entry, or Seal as theory (asked about in 10 quests).
 - **The end of the evening** (`WrapUpWindow`): "Close tonight's page": the volume's percentage then
-  and now (the darker part of the bar is where you started), played, quests, new people (else
+  and now in Fraunces (the darker part of the bar is where you started), played, quests, new people (else
   cutscenes); the title suggested from the evening (type over it: in gold, "suggested" until you do);
-  how it felt (up to 6, sent lower case); a thought for next time (it's on your Welcome back).
+  how it felt (outlined pills, pressed in the ribbon's red; up to 6, sent lower case); a thought for next
+  time (it's on your Welcome back), on the quill's edge.
   **Close the page** sends them with the evening; Skip doesn't.
-- **A chapter closes** (`MilestoneWindow`): a main-story quest finished that closed its chapter: the
-  wax seal with the chapter's numeral pressed once (900ms), "A chapter closes", its name, the last
-  words of its last quest, how many quests it held and the last of them; the theories due, settled
+- **A chapter closes** (`MilestoneWindow`): a main-story quest finished that closed its chapter: a band
+  from a dark wine to the leaf, the wax seal with the chapter's numeral pressed once over its foot (900ms),
+  "A chapter closes", its name, the last words of its last quest, between two lines how many quests it held
+  and its expansion (the mock-up's evenings and hours aren't known to the card); the theories due, settled
   right there; **A photo for its page** (captioned with its name), **Keep**.
 
 The **pace lock**: hello's partners with your lock on (`lock`); you're warned when you're past one
@@ -474,6 +500,7 @@ The **pace lock**: hello's partners with your lock on (`lock`); you're warned wh
   plugin), Link.
 - **Spoilers**: the site's setting, shown (one setting, shared: change it on the site; the plugin has
   no call to change preferences).
+- **Spoilers**' row has the site's shield (green while it's careful) and "On the site →".
 - **What comes to you**: Welcome back; margin notes (Quiet, Sometimes, Chatty: the site's, or quieter
   here); the ribbon tracker; the end of the evening and milestones (one switch for both); the pace lock
   on the tracker; lines in chat; Welcome back now.
@@ -581,8 +608,12 @@ until it's made: until then the download fails, so release before telling anyone
 - Welcome back is a page from your journal; arrivals and Who's that? are margin notes; toasts carry the
   motif of what they kept; the quick note is an index card that knows who you're looking at; the end of
   the evening closes tonight's page; a chapter closing presses a wax seal with its numeral.
-- Motion, as the site's: cards rise or slide in and leave quicker; ribbons drop with their weight; seals
-  press once. **Calm** in Settings turns it all off (and Dalamud's reduced motion does).
+- Motion, as the site's: cards rise or slide in and leave quicker; ribbons drop with their weight (the
+  tracker's rolls up and drops again when a quest's done, and when you flag the step); a chapter's seal presses
+  once; a redaction's ink lifts. **Calm** in Settings turns it all off (and Dalamud's reduced motion does), and
+  nothing moves while the game's busy.
+- When a quest brings a theory due, a toast with a cracked seal says the story answered it. Who's that? draws a
+  red tether from whoever you target to its card.
 - **Flag it in game** from the site: Today's button sets the map flag on your step (and drops the
   tracker's ribbon) within about 30 seconds (`sj_plugin_poll`).
 - The main story's reading sends the step's map spot (`current.spot`), shown on the site's Today.

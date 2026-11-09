@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using Dalamud.Bindings.ImGui;
 using StoryJournal.Core;
 using StoryJournal.Session;
 using static StoryJournal.UI.Theme;
@@ -58,11 +59,16 @@ public sealed class WelcomeWindow : CardWindow
         var w = Kit.Width;
         var win = Dalamud.Bindings.ImGui.ImGui.GetWindowPos();
         var winW = Dalamud.Bindings.ImGui.ImGui.GetWindowWidth();
-        // The red edge along the top, and the ribbon hanging from it.
-        dl.AddRectFilled(win, win + new Vector2(winW, S(3)), Palette.U32(Palette.Ribbon), S(Palette.RadiusLg), Dalamud.Bindings.ImGui.ImDrawFlags.RoundCornersTop);
-        Ink.Ribbon(dl, new Vector2(win.X + S(Pad), win.Y), S(24), S(48), ribbon.Value(Ink.Now, Ink.Still));
-        if (Kit.IconButton("##welcome-x", new Vector2(at.X + w - S(24), at.Y - S(12)), Icon.X, "Close", 24, Btn.Quiet)) Later(() => journal.Welcome = null);
-        Kit.Gap(36);
+        // The deep red edge along the top (3px), and the ribbon (26×52) hanging from it, 26px in.
+        dl.PushClipRect(win, win + new Vector2(winW, S(3)), false);
+        dl.AddRectFilled(win, win + new Vector2(winW, S(14)), Palette.U32(Palette.RibbonDeep), S(Palette.RadiusLg), Dalamud.Bindings.ImGui.ImDrawFlags.RoundCornersTop);
+        dl.PopClipRect();
+        dl.PushClipRect(win, win + new Vector2(winW, ImGui.GetWindowHeight()), false);
+        Ink.Ribbon(dl, new Vector2(win.X + S(Pad), win.Y), S(26), S(52), ribbon.Value(Ink.Now, Ink.Still));
+        dl.PopClipRect();
+        // The close, faint, 12px in from the corner.
+        if (Kit.IconButton("##welcome-x", new Vector2(win.X + winW - S(12) - S(22), win.Y + S(9)), Icon.X, "Close", 22, Btn.Quiet)) Later(() => journal.Welcome = null);
+        Kit.Gap(30);
 
         var last = c.LastPlayed.ToLocalTime();
         var away = DateTime.UtcNow - c.LastPlayed;
@@ -84,8 +90,8 @@ public sealed class WelcomeWindow : CardWindow
         if (recap.Length > 0)
         {
             var r = Kit.At;
-            var h = Ink.DropCap(dl, new Vector2(r.X + S(22), r.Y), w - S(22), recap, Face.Read, 15, Palette.Body, 23);
-            Ink.Rule(dl, r.X, r.Y + S(3), r.Y + h - S(3));
+            var h = Ink.DropCap(dl, new Vector2(r.X + S(22), r.Y), w - S(22), recap, Face.Read, 15, Palette.Body, 24.75f);
+            Ink.Rule(dl, r.X, r.Y + S(5), r.Y + h - S(5));
             Kit.Reserve(r, w, h);
         }
         else Parts.Quiet("Nothing written yet: your next evenings fill this.");
@@ -94,7 +100,7 @@ public sealed class WelcomeWindow : CardWindow
         if (c.Note is { } note)
         {
             Kit.Gap(14);
-            Kit.BeginPanel("##welcome-note", 12, 14, 12, Palette.Over(Palette.QuillSoft, Palette.Leaf), Palette.QuillLine, Palette.RadiusMd);
+            Kit.BeginPanel("##welcome-note", 10, 12, 10, Palette.Over(Palette.QuillSoft, Palette.Leaf), Palette.QuillLine, 10);
             Ink.KickerRow("Your thought from last time", Palette.Quill, 14);
             Kit.Gap(4);
             Lines.Para(note.Body, Palette.QuillInk, 14, 21, Face.ReadItalic);
@@ -102,12 +108,12 @@ public sealed class WelcomeWindow : CardWindow
         }
 
         // The step.
-        Kit.Gap(12);
+        Kit.Gap(14);
         var s = Kit.At;
-        var sh = S(58);
-        dl.AddRectFilled(s, s + new Vector2(w, sh), Palette.U32(Palette.Ground2), S(Palette.RadiusMd));
-        dl.AddRect(s + new Vector2(0.5f), s + new Vector2(w, sh) - new Vector2(0.5f), Palette.U32(Palette.Line), S(Palette.RadiusMd));
-        var tile = S(32);
+        var sh = S(62);
+        dl.AddRectFilled(s, s + new Vector2(w, sh), Palette.U32(Palette.Ground2), S(10));
+        dl.AddRect(s + new Vector2(0.5f), s + new Vector2(w, sh) - new Vector2(0.5f), Palette.U32(Palette.Line), S(10));
+        var tile = S(34);
         var tc = s + new Vector2(S(14) + tile / 2, sh / 2);
         dl.AddCircleFilled(tc, tile / 2, Palette.U32(Palette.RibbonSoft), 24);
         dl.AddCircle(tc, tile / 2 - 0.5f, Palette.U32(Palette.RibbonLine), 24, 1f);
@@ -117,8 +123,8 @@ public sealed class WelcomeWindow : CardWindow
         var under = c.Quest != null && c.Next.Count > 0
             ? c.Quest + (journal.Story.Now?.Progress.Current?.Place is { Length: > 0 } place ? $" · {place}" : string.Empty)
             : "Take it from the scenario guide";
-        Txt.Line(dl, new Vector2(tx, s.Y + S(10)), Txt.Fit(step, Face.SansSemibold, 14, w - (tx - s.X) - S(12)), Face.SansSemibold, 14, Palette.Ink, 20);
-        Txt.Line(dl, new Vector2(tx, s.Y + S(31)), Txt.Fit(under, Face.Sans, 12, w - (tx - s.X) - S(12)), Face.Sans, 12, Palette.Muted, 17);
+        Txt.Line(dl, new Vector2(tx, s.Y + S(11)), Txt.Fit(step, Face.SansSemibold, 15, w - (tx - s.X) - S(12)), Face.SansSemibold, 15, Palette.Ink, 21);
+        Txt.Line(dl, new Vector2(tx, s.Y + S(33)), Txt.Fit(under, Face.Sans, 12, w - (tx - s.X) - S(12)), Face.Sans, 12, Palette.Muted, 17);
         Kit.Reserve(s, w, sh);
 
         // One way forward.
@@ -149,7 +155,7 @@ public sealed class WelcomeWindow : CardWindow
                 Later(() => journal.Welcome = null);
                 break;
         }
-        Kit.Gap(14);
+        Kit.Gap(12);
         var f = Kit.At;
         var words = "Only what you've seen · the whole recap is on the site";
         var fw = Txt.Measure(words, Face.Sans, 11).X;

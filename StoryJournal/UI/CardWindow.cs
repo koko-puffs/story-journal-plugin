@@ -106,7 +106,13 @@ public abstract class CardWindow : Window, IDisposable
 
     protected virtual float Pad => 16;
 
-    protected virtual Vector4 Edge => Palette.Line;
+    /// <summary>The padding on the left (a margin note's words start right of its rule).</summary>
+    protected virtual float PadLeft => Pad;
+
+    protected virtual Vector4 Edge => Palette.LineStrong;
+
+    /// <summary>The card's fill (the leaf at 97%, as the mock-up's cards).</summary>
+    protected virtual Vector4 Fill => Palette.WithAlpha(Palette.Card, 0.97f);
 
     /// <summary>Where it goes the first time: a point in the screen's fraction (0..1) for its top-left, and whether that's its centre instead.</summary>
     protected virtual (Vector2 At, bool Centre) FirstPlace => (new Vector2(0.3f, 0.12f), false);
@@ -151,7 +157,7 @@ public abstract class CardWindow : Window, IDisposable
         }
         ImGui.PushStyleVar(ImGuiStyleVar.Alpha, Math.Clamp(alpha, 0.01f, 1f));
         alphaPushed = 1;
-        ImGui.PushStyleColor(ImGuiCol.WindowBg, Palette.WithAlpha(Palette.Card, 0.97f));
+        ImGui.PushStyleColor(ImGuiCol.WindowBg, Fill);
         ImGui.PushStyleColor(ImGuiCol.Border, Edge);
         ImGui.PushStyleColor(ImGuiCol.Text, Palette.Ink);
         colors = 3;
@@ -192,7 +198,7 @@ public abstract class CardWindow : Window, IDisposable
     {
         Theme.PushInside();
         var origin = ImGui.GetCursorScreenPos();
-        Kit.PushBox(origin.X + S(Pad), S(CardWidth - Pad * 2));
+        Kit.PushBox(origin.X + S(PadLeft), S(CardWidth - Pad - PadLeft));
         try
         {
             using (fonts.Push(Face.Sans, 14))

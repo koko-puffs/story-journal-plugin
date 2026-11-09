@@ -34,6 +34,9 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin(IDalamudPluginInterface pluginInterface)
     {
         pluginInterface.Create<Services>();
+        // Which plugin this is, for the site ("Story Journal 0.2.0 said hello"): major.minor.build.
+        var version = typeof(Plugin).Assembly.GetName().Version;
+        Core.Progress.PluginVersion = version is null ? null : $"{version.Major}.{version.Minor}.{version.Build}";
         config = Services.PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         try
         {
@@ -134,6 +137,8 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             Ink.Calm = journal.Config.Calm;
+            // Busy (combat, a duty, a cutscene, a loading screen): cards wait and nothing moves (motion.html, Game.Busy).
+            Ink.Busy = Game.InGame.Busy;
             journal.Tick();
         }
         catch (Exception ex)

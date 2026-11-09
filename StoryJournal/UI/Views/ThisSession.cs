@@ -69,9 +69,9 @@ public sealed partial class MainWindow
 
         Kit.Gap(14);
         var line = Kit.At;
-        Kit.Divider(line.X, line.X + w, line.Y);
+        Kit.Dl.AddLine(new Vector2(line.X, line.Y + 0.5f), new Vector2(line.X + w, line.Y + 0.5f), Palette.U32(Palette.Line), 1f);
         Kit.Reserve(line, w, 1);
-        Kit.Gap(12);
+        Kit.Gap(10);
         var foot = Kit.At;
         var endW = Kit.ButtonWidth("End the evening", BtnSize.Sm);
         Kit.PushBox(foot.X, w - endW - S(12));
@@ -96,41 +96,52 @@ public sealed partial class MainWindow
         for (var i = 0; i < tiles.Length; i++)
         {
             var p = at + new Vector2((i % cols) * (tw + gap), (i / cols) * (th + gap));
-            dl.AddRectFilled(p, p + new Vector2(tw, th), Palette.U32(Palette.Ground2), S(12));
-            dl.AddRect(p + new Vector2(0.5f), p + new Vector2(tw, th) - new Vector2(0.5f), Palette.U32(Palette.Line), S(12));
+            dl.AddRectFilled(p, p + new Vector2(tw, th), Palette.U32(Palette.Ground2), S(10));
+            dl.AddRect(p + new Vector2(0.5f), p + new Vector2(tw, th) - new Vector2(0.5f), Palette.U32(Palette.Line), S(10));
             Txt.Line(dl, p + new Vector2(S(12), S(10)), Txt.Fit(tiles[i].Figure, Face.Display, 19, tw - S(24)), Face.Display, 19, Palette.Ink, 24);
             Txt.Line(dl, p + new Vector2(S(12), S(36)), Txt.Fit(tiles[i].Word, Face.Sans, 11, tw - S(24)), Face.Sans, 11, Palette.Muted, 16);
         }
         Kit.Reserve(at, w, rows * th + (rows - 1) * gap);
     }
 
-    /// <summary>What happened, newest first, on the red thread: a time, a knot, the words (a saved line in Literata).</summary>
+    /// <summary>
+    /// What happened, newest first, on the red thread (the site's: the string 8px in, each item 28px in): a knot on the
+    /// string, the time, the words (names in Geist 600 and ink), a saved line in Literata's italic and candle gold, a
+    /// stamp on someone met, a photo's place.
+    /// </summary>
     private void DrawThread(System.Collections.Generic.List<JournalEvent> events)
     {
         var top = Kit.At;
         var w = Kit.Width;
         var dl = Kit.Dl;
-        var timeW = S(44);
-        var knotX = top.X + timeW + S(10);
-        var textX = knotX + S(18);
-        var i = 0;
-        var lastY = top.Y;
+        var stringX = top.X + S(9);
+        var timeX = top.X + S(28);
+        var textX = timeX + S(44 + 8);
+        var textW = w - (textX - top.X);
+        var knots = new System.Collections.Generic.List<float>();
         foreach (var e in events.Take(60))
         {
             var at = Kit.At;
-            var (words, quote, stamp) = Story(e);
+            var (before, name, after, quote, stamp) = Story(e);
+            var runs = new System.Collections.Generic.List<Run> { new(before, Face.Sans, 13, Palette.Body) };
+            if (name is { Length: > 0 }) runs.Add(new Run(name, Face.SansSemibold, 13, Palette.Ink));
+            if (after.Length > 0) runs.Add(new Run(after, Face.Sans, 13, Palette.Body));
             Txt.Line(dl, at, Ui.Clock(e.At), Face.Mono, 11, Palette.Faint, 20);
-            var h = Lines.Draw(dl, new Vector2(textX, at.Y), w - (textX - at.X) - (stamp != null ? Ink.StampWidth(stamp) + S(8) : 0), words, Face.Sans, 13, Palette.Body, 20);
+            var room = textW - (stamp != null ? Ink.StampWidth(stamp) + S(8) : 0);
+            var h = Txt.Flow(new Vector2(textX, at.Y), room, runs, 20, out _);
             if (stamp != null)
-                Ink.Stamp(dl, new Vector2(textX + MathF.Min(Txt.Measure(words, Face.Sans, 13).X + S(8), w - (textX - at.X) - Ink.StampWidth(stamp)), at.Y), stamp);
+            {
+                var used = Txt.Measure(before, Face.Sans, 13).X + (name is { Length: > 0 } ? Txt.Measure(name, Face.SansSemibold, 13).X : 0) + Txt.Measure(after, Face.Sans, 13).X;
+                Ink.Stamp(dl, new Vector2(textX + MathF.Min(used + S(6), textW - Ink.StampWidth(stamp)), at.Y), stamp);
+            }
             if (quote != null)
             {
-                h += S(4);
-                h += Lines.Draw(dl, new Vector2(textX, at.Y + h), w - (textX - at.X), $"“{quote}”", Face.ReadItalic, 13, Palette.QuillInk, 19);
+                h += S(3);
+                h += Lines.Draw(dl, new Vector2(textX, at.Y + h), textW, $"“{quote}”", Face.ReadItalic, 13, Palette.QuillInk, 19);
             }
             if (e.Kind == EventKind.Photo)
             {
-                // The photo's place in the thread (the picture itself is on the site once it's sent).
+                // The photo's place in the thread (the picture itself is on the site once it's sent): a snowy stand-in.
                 var p = new Vector2(textX, at.Y + h + S(6));
                 var size = new Vector2(S(120), S(64));
                 dl.AddRectFilledMultiColor(p, p + size, Palette.U32(Palette.Hex(0xb8c4d8)), Palette.U32(Palette.Hex(0x9fb0c8)), Palette.U32(Palette.Hex(0x2b3346)), Palette.U32(Palette.Hex(0x3a4258)));
@@ -138,63 +149,44 @@ public sealed partial class MainWindow
                 dl.AddRect(p, p + size, Palette.U32(Palette.Line), S(8));
                 h += size.Y + S(6);
             }
-            lastY = at.Y + S(10);
+            knots.Add(at.Y + S(10));
             Kit.Reserve(at, w, MathF.Max(S(20), h));
             Kit.Gap(12);
-            i++;
         }
-        // The thread, then the knots over it (the rows are laid first, so the thread's length is known).
-        var end = Kit.At.Y;
-        Ink.Thread(dl, new Vector2(knotX, top.Y + S(10)), MathF.Max(lastY + S(30), end - S(4)));
-        // Knots over the thread.
-        RedrawKnots(events, top, knotX, w, textX);
+        // The string (from 0.4rem to 0.4rem from the ends, fading), then the knots on it: the newest filled and ringed.
+        if (knots.Count == 0) return;
+        Ink.Thread(dl, new Vector2(stringX, top.Y + S(6)), Kit.At.Y - S(12) - S(6));
+        for (var i = 0; i < knots.Count; i++) Ink.Knot(dl, new Vector2(stringX, knots[i]), i == 0, 1f);
     }
 
-    /// <summary>The knots, over the thread, at each row's height (worked out as the rows were).</summary>
-    private void RedrawKnots(System.Collections.Generic.List<JournalEvent> events, Vector2 top, float knotX, float w, float textX)
-    {
-        var dl = Kit.Dl;
-        var y = top.Y;
-        var i = 0;
-        foreach (var e in events.Take(60))
-        {
-            var (words, quote, stamp) = Story(e);
-            var h = Lines.Height(words, w - (textX - top.X) - (stamp != null ? Ink.StampWidth(stamp) + S(8) : 0), Face.Sans, 13, 20);
-            if (quote != null) h += S(4) + Lines.Height($"“{quote}”", w - (textX - top.X), Face.ReadItalic, 13, 19);
-            if (e.Kind == EventKind.Photo) h += S(64) + S(12);
-            Ink.Knot(dl, new Vector2(knotX, y + S(10)), i == 0, 1f);
-            y += MathF.Max(S(20), h) + S(12);
-            i++;
-        }
-    }
-
-    /// <summary>An event as the thread tells it: its words, a saved line's words, a stamp (someone met: the Codex grew).</summary>
-    private static (string Words, string? Quote, string? Stamp) Story(JournalEvent e)
+    /// <summary>An event as the thread tells it: its words around a name (set in ink), a saved line's words, a stamp (someone met: the Codex grew).</summary>
+    private static (string Before, string? Name, string After, string? Quote, string? Stamp) Story(JournalEvent e)
     {
         var d = e.Data;
         string T(string k) => Json.Str(d[k]) ?? string.Empty;
         switch (e.Kind)
         {
             case EventKind.Quest:
-                return ($"Finished {T("name")}" + (Json.Bool(d["chapterDone"]) ? $" · the chapter {T("chapter")} closes" : string.Empty), null, null);
+                return ("Finished ", T("name"), Json.Bool(d["chapterDone"]) ? $" · the chapter {T("chapter")} closes" : string.Empty, null, null);
             case EventKind.Accept:
-                return ($"Took {T("name")}", null, null);
+                return ("Took ", T("name"), string.Empty, null, null);
             case EventKind.Cutscene:
-                return ($"A cutscene{(T("place").Length > 0 ? " in " + T("place") : string.Empty)} · {Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"])))}", null, null);
+                return (T("place").Length > 0 ? "A cutscene in " : "A cutscene", T("place").Length > 0 ? T("place") : null,
+                    $" · {Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"])))}", null, null);
             case EventKind.Zone:
-                return ($"Reached {T("name")}" + (Json.Bool(d["first"]) ? ", for the first time" : string.Empty), null, null);
+                return ("Reached ", T("name"), Json.Bool(d["first"]) ? ", for the first time" : string.Empty, null, null);
             case EventKind.Duty:
-                return ($"{(Json.Bool(d["cleared"]) ? "Cleared" : "Left")} {T("name")} · {Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"])))}", null, null);
+                return (Json.Bool(d["cleared"]) ? "Cleared " : "Left ", T("name"), $" · {Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"])))}", null, null);
             case EventKind.Level:
-                return ($"Level {Json.Int(d["level"])} {T("job")}", null, null);
+                return ("Level ", $"{Json.Int(d["level"])} {T("job")}", string.Empty, null, null);
             case EventKind.Person:
-                return ($"Met {T("name")}", null, "Codex +1");
+                return ("Met ", T("name"), string.Empty, null, "Codex +1");
             case EventKind.Line:
-                return ($"Saved a line of {(T("speaker").Length > 0 ? T("speaker") : "someone")}'s", T("text"), null);
+                return ($"Saved a line of {(T("speaker").Length > 0 ? T("speaker") : "someone")}'s", null, string.Empty, T("text"), null);
             case EventKind.Photo:
-                return ("A photo" + (T("caption").Length > 0 ? $": {T("caption")}" : string.Empty), null, null);
+                return T("caption").Length > 0 ? ("A photo: ", T("caption"), string.Empty, null, null) : ("A photo", null, string.Empty, null, null);
             default:
-                return (e.Kind, null, null);
+                return (e.Kind, null, string.Empty, null, null);
         }
     }
 

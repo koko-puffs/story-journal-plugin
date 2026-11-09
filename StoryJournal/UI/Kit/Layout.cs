@@ -14,6 +14,7 @@ public enum ChipKind
     Accent,
     Bad,
     Quiet,
+    Quill,
 }
 
 /// <summary>
@@ -133,18 +134,18 @@ public static partial class Kit
     private static (float H, float Pad, int Px) ChipSpec(int size) => size switch
     {
         18 => (18, 6, 11),
-        22 => (22, 8, 11),
+        22 => (22, 9, 11),
         _ => (24, 10, 12),
     };
 
-    public static float ChipW(string text, bool tick = false, int size = 24, Face face = Face.Sans)
+    public static float ChipW(string text, bool tick = false, int size = 24, Face face = Face.SansSemibold)
     {
         var (_, pad, px) = ChipSpec(size);
         return S(pad) * 2 + (tick ? S(12 + 6) : 0) + Txt.Measure(text, face, px).X;
     }
 
     /// <summary>A chip (24, 22 or 18 tall) in its colour, with a tick before its words if asked. Returns its width.</summary>
-    public static float Chip(Vector2 pos, string text, ChipKind kind, bool tick = false, int size = 24, float maxWidth = 0, Face face = Face.Sans)
+    public static float Chip(Vector2 pos, string text, ChipKind kind, bool tick = false, int size = 24, float maxWidth = 0, Face face = Face.SansSemibold)
     {
         var (hc, pad, px) = ChipSpec(size);
         var h = S(hc);
@@ -153,14 +154,17 @@ public static partial class Kit
         var w = ChipW(text, tick, size, face);
         var (fill, edge, ink) = kind switch
         {
-            ChipKind.Ok => (Palette.SuccessWash, Palette.SuccessEdge, Palette.Success),
-            ChipKind.Accent => (Palette.AccentWash, Palette.AccentEdge, Palette.AccentSoft),
+            ChipKind.Ok => (Palette.SuccessWash, Palette.Rgba(134, 217, 168, 0.35f), Palette.Success),
+            ChipKind.Accent => (Palette.RibbonSoft, Palette.RibbonLine, Palette.Ribbon),
+            ChipKind.Quill => (Palette.QuillSoft, Palette.QuillLine, Palette.Quill),
             ChipKind.Bad => (Palette.DangerWash, Palette.DangerEdge, Palette.Danger),
-            ChipKind.Quiet => (Palette.Tile, Vector4.Zero, Palette.Soft),
-            _ => (Vector4.Zero, Palette.LineStrong, Palette.Soft),
+            // Pointed at: the raised chip, its words in ink.
+            ChipKind.Quiet => (Palette.Hover, Palette.LineStrong, Palette.Ink),
+            // The site's chip: raised, the line edge, muted words.
+            _ => (Palette.LeafRaised, Palette.Line, Palette.Muted),
         };
         var dl = Dl;
-        var r = kind == ChipKind.Quiet ? S(6) : h / 2;
+        var r = h / 2;
         if (fill.W > 0) dl.AddRectFilled(pos, pos + new Vector2(w, h), Palette.U32(fill), r);
         if (edge.W > 0) dl.AddRect(pos + new Vector2(0.5f), pos + new Vector2(w, h) - new Vector2(0.5f), Palette.U32(edge), r, ImDrawFlags.None, 1f);
         var x = pos.X + S(pad);
@@ -191,8 +195,8 @@ public static partial class Kit
         Reserve(at, Width, Txt.Natural(Face.Mono, 11));
     }
 
-    /// <summary>Accent words that are a link (ink when pointed at); true when pressed.</summary>
-    public static bool Link(string id, Vector2 pos, string text, int px = 13, Face face = Face.Sans)
+    /// <summary>Ribbon words that are a link (Geist 600, as the site's .link; ink when pointed at); true when pressed.</summary>
+    public static bool Link(string id, Vector2 pos, string text, int px = 13, Face face = Face.SansSemibold)
     {
         var size = Txt.Measure(text, face, px);
         var (clicked, hovered, _) = Hit(id, pos, size);

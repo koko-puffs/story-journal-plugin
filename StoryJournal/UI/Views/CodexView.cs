@@ -157,19 +157,19 @@ public sealed partial class MainWindow
             {
                 var name = near[i];
                 var on = codexOpen != null && string.Equals(codexOpen, name, StringComparison.OrdinalIgnoreCase);
-                var cw = Kit.ChipW(name);
+                var cw = Kit.ChipW(name, false, 22, Face.SansSemibold);
                 if (x + cw > row.X + w && x > row.X + S(90))
                 {
                     x = row.X + S(78);
                     y += S(30);
                 }
                 var p = new Vector2(x, y);
-                var (clicked, hovered, _) = Kit.Hit(Ids.Of("##codex-near", i), p, new Vector2(cw, S(24)));
-                Kit.Chip(p, name, on ? ChipKind.Accent : hovered ? ChipKind.Quiet : ChipKind.Plain);
+                var (clicked, hovered, _) = Kit.Hit(Ids.Of("##codex-near", i), p, new Vector2(cw, S(22)));
+                Kit.Chip(p, name, on ? ChipKind.Accent : hovered ? ChipKind.Quiet : ChipKind.Plain, false, 22);
                 if (clicked) Later(() => { codexOpen = on ? null : name; });
                 x += cw + S(6);
             }
-            Kit.Reserve(row, w, y - row.Y + S(24));
+            Kit.Reserve(row, w, y - row.Y + S(22));
         }
 
         // The open entry, as a page.
@@ -235,7 +235,7 @@ public sealed partial class MainWindow
     /// </summary>
     private void DrawPersonPage(CodexRow row, StoryState? story)
     {
-        Kit.BeginPanel("##codex-page", 18, 18, 18, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+        Kit.BeginPanel("##codex-page", 14, 14, 14, Palette.Leaf, Palette.Line, Palette.RadiusMd);
         var at = Kit.At;
         var w = Kit.Width;
         var dl = Kit.Dl;
@@ -244,7 +244,7 @@ public sealed partial class MainWindow
         if (!narrow)
         {
             var pic = at;
-            var ph = S(104);
+            var ph = S(105);
             // The arch: a round top over a rounded foot.
             dl.AddRectFilledMultiColor(pic + new Vector2(0, picW / 2), pic + new Vector2(picW, ph), Palette.U32(Palette.Hex(0x3a2a26)), Palette.U32(Palette.Hex(0x3a2a26)), Palette.U32(Palette.Hex(0x1d1715)), Palette.U32(Palette.Hex(0x1d1715)));
             dl.AddCircleFilled(pic + new Vector2(picW / 2, picW / 2), picW / 2, Palette.U32(Palette.Hex(0x3a2a26)), 40);
@@ -252,7 +252,7 @@ public sealed partial class MainWindow
             var isz = Txt.Measure(initial, Face.DisplayItalic, 22);
             Txt.Draw(dl, pic + new Vector2((picW - isz.X) / 2, ph - isz.Y - S(10)), initial, Face.DisplayItalic, 22, Palette.Rgba(244, 236, 226, 0.78f));
         }
-        var x = at.X + (narrow ? 0 : picW + S(18));
+        var x = at.X + (narrow ? 0 : picW + S(14));
         var tw = w - (x - at.X);
         Kit.PushBox(x, tw);
         var kind = row.Kind switch { "person" => "A person", "place" => "A place", "chapter" => "A chapter", "item" => "A key item", _ => "The world" };
@@ -269,7 +269,8 @@ public sealed partial class MainWindow
         {
             Kit.Gap(4);
             var a = Kit.At;
-            var ch = ChapterNumber() is { } n ? $" · ch. {Roman.Of(n)}" : string.Empty;
+            // The chapter they were met in (their quest's), else the one you're in.
+            var ch = (ChapterNumberOf(met.QuestId) ?? ChapterNumber()) is { } n ? $" · ch. {Roman.Of(n)}" : string.Empty;
             Ink.Stamp(dl, a, $"Met{ch} · {Ui.Ago(met.At)}");
             Kit.Reserve(a, tw, S(20));
         }
@@ -306,10 +307,10 @@ public sealed partial class MainWindow
             Kit.Gap(4);
             var a = Kit.At;
             var bh = S(34);
-            Kit.Dashed(a, a + new Vector2(tw, bh), S(10), Palette.LineStrong, 1f);
-            Icons.Draw(dl, Icon.Lock, a + new Vector2(S(12), (bh - S(13)) / 2), S(13), Palette.Faint);
+            Kit.Dashed(a, a + new Vector2(tw, bh), S(8), Palette.LineStrong, 1f);
+            Icons.Draw(dl, Icon.Lock, a + new Vector2(S(10), (bh - S(13)) / 2), S(13), Palette.Faint);
             var who = row.Kind == "person" ? "Their page" : "Its page";
-            Txt.Line(dl, a + new Vector2(S(32), 0), Txt.Fit($"{who} fills in as you play: more of it the further you get.", Face.Sans, 12, tw - S(44)), Face.Sans, 12, Palette.Muted, 34);
+            Txt.Line(dl, a + new Vector2(S(31), 0), Txt.Fit($"{who} fills in as you play: more of it the further you get.", Face.Sans, 12, tw - S(41)), Face.Sans, 12, Palette.Faint, 34);
             Kit.Reserve(a, tw, bh);
         }
         var notes = (journal.Sync.Hello?.Notes ?? Array.Empty<SiteNote>())
@@ -338,6 +339,24 @@ public sealed partial class MainWindow
         var end = ImGui.GetCursorScreenPos().Y;
         Kit.Reserve(at, w, MathF.Max(end - at.Y, narrow ? 0 : S(104)));
         Kit.EndPanel();
+    }
+
+    /// <summary>The number (in its expansion) of the chapter a quest belongs to, when the catalog and the reading have it.</summary>
+    private int? ChapterNumberOf(uint questId)
+    {
+        if (questId == 0 || journal.Story.Catalog?.Quest(questId) is not { Chapter: > 0 } q || journal.Story.Now?.Progress is not { } p) return null;
+        var expansion = -1;
+        foreach (var c in p.Chapters)
+            if (c.Id == q.Chapter) expansion = c.Expansion;
+        if (expansion < 0) return null;
+        var i = 0;
+        foreach (var c in p.Chapters)
+        {
+            if (c.Expansion != expansion) continue;
+            i++;
+            if (c.Id == q.Chapter) return i;
+        }
+        return null;
     }
 
     private (string? Open, List<CodexRow>? Rows) openFor;

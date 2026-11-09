@@ -44,7 +44,7 @@ public sealed partial class MainWindow : Window, IDisposable
         Size = new Vector2(880, 660);
         SizeCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(440, 420), MaximumSize = new Vector2(1600, 2400) };
-        Flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
+        Flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoCollapse;
     }
 
     /// <summary>Opens the quick note (set by the plugin).</summary>
@@ -107,9 +107,9 @@ public sealed partial class MainWindow : Window, IDisposable
     // ---------------------------------------------------------------------------------------------
     // The rail and the pane.
 
-    private const float RailWide = 168;
-    private const float RailNarrow = 56;
-    private const float PanePad = 22;
+    private const float RailWide = 172;
+    private const float RailNarrow = 52;
+    private const float PanePad = 18;
 
     /// <summary>The rail's red bar: where it was and where it's going (it slides, 220ms settle).</summary>
     private readonly Anim barMove = new(Durations.Step, Ease.Settle);
@@ -139,6 +139,7 @@ public sealed partial class MainWindow : Window, IDisposable
                     dl.AddLine(new Vector2(win.X + railW - 0.5f, top), new Vector2(win.X + railW - 0.5f, bottom), Palette.U32(Palette.Line), 1f);
                     // The faint line under Dalamud's title bar.
                     dl.AddLine(new Vector2(win.X + 1, top + 0.5f), new Vector2(win.X + size.X - 1, top + 0.5f), Palette.U32(Palette.Line), 1f);
+                    DrawTitle(win, size.X, top);
                     DrawRail(new Vector2(win.X, top), railW, bottom - top, narrow);
                     DrawPane(new Vector2(win.X + railW, top), size.X - railW, bottom - top);
                 }
@@ -182,12 +183,50 @@ public sealed partial class MainWindow : Window, IDisposable
         (MainTab.Notebook, "Notebook", Icon.NotebookPen),
     };
 
+    /// <summary>
+    /// The title bar, as the mock-up's: the small ribbon before "Story Journal" (Geist 600, 13px), and on the right who's
+    /// playing (on Now) or the open place, in muted words. Drawn over Dalamud's own title (its buttons on the right are
+    /// left alone).
+    /// </summary>
+    private void DrawTitle(Vector2 win, float width, float top)
+    {
+        var tb = top - win.Y;
+        if (tb < S(12)) return;
+        var dl = Kit.Dl;
+        dl.PushClipRect(win, new Vector2(win.X + width, top), false);
+        // Dalamud's buttons and the close sit at the right, each about the bar's height wide.
+        var right = win.X + width - tb * 3.2f;
+        dl.AddRectFilled(win + new Vector2(1, 1), new Vector2(right, top - 1), Palette.U32(Palette.Footer), ImGui.GetStyle().WindowRounding - 1, ImDrawFlags.RoundCornersTopLeft);
+        Ink.Ribbon(dl, new Vector2(win.X + S(12), win.Y + (tb - S(14)) / 2), S(8), S(14));
+        var x = win.X + S(26);
+        x += Txt.Line(dl, new Vector2(x, win.Y), "Story Journal", Face.SansSemibold, 13, Palette.Ink, tb / S(1));
+        var small = tab switch
+        {
+            MainTab.Now => journal.Player is { } p ? (p.World.Length > 0 ? $"{p.Name} · {p.World}" : p.Name) : null,
+            MainTab.Session => "This evening",
+            MainTab.Codex => "Codex",
+            MainTab.Notebook => "Notebook",
+            _ => "Settings",
+        };
+        if (small is { Length: > 0 })
+        {
+            var room = right - S(10) - (x + S(16));
+            if (room > S(30))
+            {
+                var shown = Txt.Fit(small, Face.SansMedium, 11, room);
+                var sw = Txt.Measure(shown, Face.SansMedium, 11).X;
+                Txt.Line(dl, new Vector2(right - S(10) - sw, win.Y), shown, Face.SansMedium, 11, Palette.Muted, tb / S(1));
+            }
+        }
+        dl.PopClipRect();
+    }
+
     private void DrawRail(Vector2 at, float w, float h, bool narrow)
     {
         var dl = Kit.Dl;
         var pad = S(narrow ? 8 : 10);
-        var itemH = S(36);
-        var y = at.Y + S(14);
+        var itemH = S(34);
+        var y = at.Y + S(12);
         var x = at.X + pad;
         var iw = w - pad * 2;
         float? barY = null;
@@ -197,50 +236,73 @@ public sealed partial class MainWindow : Window, IDisposable
             var pos = new Vector2(x, y);
             var on = tab == t;
             var (clicked, hovered, _) = Kit.Hit(Ids.Of("##rail", i), pos, new Vector2(iw, itemH));
-            if (on || hovered) dl.AddRectFilled(pos, pos + new Vector2(iw, itemH), Palette.U32(on ? Palette.Hover : Palette.RowHover), S(10));
+            // The open place: raised, its picture in the ribbon's red, the red bar inside its left edge (drawn below, sliding).
+            if (on || hovered) dl.AddRectFilled(pos, pos + new Vector2(iw, itemH), Palette.U32(on ? Palette.LeafRaised : Palette.RowHover), S(8));
             if (on) barY = y;
-            var ink = on ? Palette.Ink : hovered ? Palette.Ink : Palette.Muted;
-            var iconAt = narrow ? new Vector2(x + (iw - S(17)) / 2, y + (itemH - S(17)) / 2) : new Vector2(x + S(12), y + (itemH - S(16)) / 2);
-            Icons.Draw(dl, icon, iconAt, S(narrow ? 17 : 16), on ? Palette.Ribbon : ink);
+            var ink = on || hovered ? Palette.Ink : Palette.Muted;
+            var iconAt = narrow ? new Vector2(x + (iw - S(15)) / 2, y + (itemH - S(15)) / 2) : new Vector2(x + S(10), y + (itemH - S(15)) / 2);
+            Icons.Draw(dl, icon, iconAt, S(15), on ? Palette.Ribbon : ink);
             if (!narrow)
             {
-                Txt.Line(dl, new Vector2(x + S(38), y), label, Face.SansMedium, 13, ink, 36);
+                Txt.Line(dl, new Vector2(x + S(35), y), label, Face.SansSemibold, 13, ink, 34);
                 var badge = Badge(t);
-                if (badge == "•") Kit.Dot(new Vector2(x + iw - S(14), y + itemH / 2), Palette.Ribbon, 7);
+                if (badge == "•")
+                {
+                    // The evening under way: a live dot with the ribbon's soft ring.
+                    var c = new Vector2(x + iw - S(13), y + itemH / 2);
+                    dl.AddCircleFilled(c, S(3.5f + 3), Palette.U32(Palette.RibbonSoft), 16);
+                    Kit.Dot(c, Palette.Ribbon, 7);
+                }
                 else if (badge != null)
                 {
-                    var bw = Txt.Measure(badge, Face.Mono, 11).X;
-                    Txt.Line(dl, new Vector2(x + iw - S(12) - bw, y), badge, Face.Mono, 11, Palette.Faint, 36);
+                    var bw = Txt.Measure(badge, Face.SansMedium, 12).X;
+                    Txt.Line(dl, new Vector2(x + iw - S(10) - bw, y), badge, Face.SansMedium, 12, Palette.Faint, 34);
                 }
             }
-            else if (Badge(t) == "•") Kit.Dot(new Vector2(x + iw - S(8), y + S(9)), Palette.Ribbon, 6);
-            if (hovered && narrow) Kit.Tooltip(label);
+            else if (Badge(t) == "•") Kit.Dot(new Vector2(x + iw - S(7), y + S(8)), Palette.Ribbon, 6);
+            // The evening's live dot says how long it's been under way.
+            var underWay = t == MainTab.Session && journal.Session is { } live ? $"Under way: {Ui.Duration(DateTime.UtcNow - live.StartedAt)}" : null;
+            if (hovered && narrow) Kit.Tooltip(underWay != null ? $"{label} · {underWay.ToLowerInvariant()}" : label);
+            else if (hovered && underWay != null) Kit.Tooltip(underWay);
             if (clicked) Later(() => tab = t);
-            y += itemH + S(4);
+            y += itemH + S(2);
         }
 
         // The foot: the story's progress, then Settings (and the site).
-        var footTop = at.Y + h - S(narrow ? 60 : 132);
-        dl.AddLine(new Vector2(x, footTop), new Vector2(x + iw, footTop), Palette.U32(Palette.Line), 1f);
-        var fy = footTop + S(14);
+        var footTop = at.Y + h - S(narrow ? 56 : 126);
+        dl.AddLine(new Vector2(x, footTop + 0.5f), new Vector2(x + iw, footTop + 0.5f), Palette.U32(Palette.Line), 1f);
+        var fy = footTop + S(12);
+        var fx = x + S(4);
+        var fw = iw - S(8);
         if (!narrow && journal.Story.Now?.Progress.ExpansionNow is { } ex)
         {
-            Txt.Line(dl, new Vector2(x + S(2), fy), Txt.Fit(ex.Name, Face.Display, 13, iw), Face.Display, 13, Palette.Ink, 18);
+            Txt.Line(dl, new Vector2(fx, fy), Txt.Fit(ex.Name, Face.Display, 13, fw), Face.Display, 13, Palette.Ink, 16);
+            fy += S(22);
+            // "Chapter iv · 60%": the numeral in Fraunces, as the site's small capitals.
+            var cx = fx;
+            if (ChapterNumber() is { } n)
+            {
+                cx += Txt.Line(dl, new Vector2(cx, fy), "Chapter ", Face.Sans, 11, Palette.Muted, 14);
+                cx += Ink.Roman(dl, new Vector2(cx, fy), Roman.Of(n), 13, Palette.Muted, 14);
+                cx += Txt.Line(dl, new Vector2(cx, fy), " · ", Face.Sans, 11, Palette.Muted, 14);
+            }
+            Txt.Line(dl, new Vector2(cx, fy), $"{Progress.Percent(ex.Done, ex.Total)}%", Face.Sans, 11, Palette.Muted, 14);
             fy += S(20);
-            var chapter = ChapterNumber() is { } n ? $"Chapter {Roman.Of(n)} · " : string.Empty;
-            Txt.Line(dl, new Vector2(x + S(2), fy), Txt.Fit($"{chapter}{Progress.Percent(ex.Done, ex.Total)}%", Face.Sans, 11, iw), Face.Sans, 11, Palette.Muted, 15);
-            fy += S(19);
-            Kit.Progress(new Vector2(x + S(2), fy), iw - S(4), ex.Total > 0 ? (float)ex.Done / ex.Total : 0, 4);
+            Kit.Progress(new Vector2(fx, fy), fw, ex.Total > 0 ? (float)ex.Done / ex.Total : 0, 4);
             fy += S(14);
         }
-        else if (!narrow) fy += S(53);
-        var bh = S(32);
+        else if (!narrow) fy += S(56);
+        var bh = S(28);
         if (narrow)
         {
-            var gp = new Vector2(x + (iw - bh) / 2, at.Y + h - S(14) - bh);
-            if (tab == MainTab.Settings) dl.AddRectFilled(gp - new Vector2(S(4)), gp + new Vector2(bh + S(4)), Palette.U32(Palette.Hover), S(10));
-            if (Kit.IconButton("##rail-gear", gp, Icon.Gear, "Settings", 32, Btn.Quiet)) Later(() => tab = MainTab.Settings);
-            if (tab == MainTab.Settings) barY = gp.Y - S(2);
+            var gp = new Vector2(x + (iw - S(36)) / 2, at.Y + h - S(12) - S(30));
+            var on = tab == MainTab.Settings;
+            var (clicked, hovered, _) = Kit.Hit("##rail-gear", gp, new Vector2(S(36), S(30)));
+            if (on || hovered) dl.AddRectFilled(gp, gp + new Vector2(S(36), S(30)), Palette.U32(on ? Palette.LeafRaised : Palette.RowHover), S(8));
+            Icons.Draw(dl, Icon.Gear, gp + new Vector2((S(36) - S(15)) / 2, (S(30) - S(15)) / 2), S(15), on ? Palette.Ribbon : hovered ? Palette.Ink : Palette.Muted);
+            if (hovered) Kit.Tooltip("Settings");
+            if (clicked) Later(() => tab = MainTab.Settings);
+            if (on) barY = gp.Y - (itemH - S(30)) / 2;
         }
         else
         {
@@ -248,11 +310,11 @@ public sealed partial class MainWindow : Window, IDisposable
             var setW = iw - siteW - S(6);
             if (Kit.Button("##rail-settings", new Vector2(x, fy), "Settings", tab == MainTab.Settings ? Btn.Picked : Btn.Glass, BtnSize.Sm, Icon.Gear, setW, false, null, bh))
                 Later(() => tab = MainTab.Settings);
-            if (Kit.IconButton("##rail-site", new Vector2(x + setW + S(6), fy), Icon.ArrowRight, "Your journal on kokos-tools.com", 32))
+            if (Kit.IconButton("##rail-site", new Vector2(x + setW + S(6), fy), Icon.ArrowRight, "Your journal on kokos-tools.com", 28))
                 Dalamud.Utility.Util.OpenLink(SiteLink.SiteUrl);
         }
 
-        // The red bar on the left of the open place, sliding when it moves.
+        // The red bar inside the open place's left edge (the site's 3px inset), sliding when it moves (220ms, settle).
         if (barY is { } to)
         {
             if (float.IsNaN(barTo))
@@ -266,7 +328,19 @@ public sealed partial class MainWindow : Window, IDisposable
                 barMove.Start(Ink.Now);
             }
             var by = barMove.Started ? barMove.Between(barFrom, barTo, Ink.Now, Ink.Still) : barTo;
-            dl.AddRectFilled(new Vector2(x - S(4), by + S(8)), new Vector2(x - S(1), by + itemH - S(8)), Palette.U32(Palette.Ribbon), S(2));
+            var bx = narrow ? x + (iw - S(36)) / 2 : x;
+            var bt = narrow && tab == MainTab.Settings ? by + (itemH - S(30)) / 2 : by;
+            var bb = narrow && tab == MainTab.Settings ? bt + S(30) : by + itemH;
+            var bw = narrow ? S(36) : iw;
+            if (MathF.Abs(by - to) < 0.5f)
+            {
+                // At rest: the inset follows the place's rounded corners, as the site's box-shadow does (a "[").
+                dl.PushClipRect(new Vector2(bx, bt), new Vector2(bx + S(8), bb), true);
+                dl.AddRectFilled(new Vector2(bx, bt), new Vector2(bx + bw, bb), Palette.U32(Palette.Ribbon), S(8));
+                dl.AddRectFilled(new Vector2(bx + S(3), bt), new Vector2(bx + bw + S(3), bb), Palette.U32(Palette.LeafRaised), S(8));
+                dl.PopClipRect();
+            }
+            else dl.AddRectFilled(new Vector2(bx, bt), new Vector2(bx + S(3), bb), Palette.U32(Palette.Ribbon), S(1.5f));
         }
     }
 
@@ -302,7 +376,7 @@ public sealed partial class MainWindow : Window, IDisposable
         Frame.Open.Push(false);
         var start = ImGui.GetCursorScreenPos();
         Kit.PushBox(start.X + S(PanePad), ImGui.GetContentRegionAvail().X - S(PanePad) * 2);
-        Kit.Reserve(start, 1, S(18));
+        Kit.Reserve(start, 1, S(16));
         switch (tab)
         {
             case MainTab.Session:
@@ -338,7 +412,7 @@ public sealed partial class MainWindow : Window, IDisposable
     /// <summary>A box with an icon well, a title and words, for an empty place or a state to say.</summary>
     private static void Empty(string id, Icon icon, string title, string words)
     {
-        Kit.BeginPanel(id, 18, 20, 18, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+        Kit.BeginPanel(id, 16, 18, 16, Palette.Leaf, Palette.Line, Palette.RadiusMd);
         var at = Kit.At;
         var w = Kit.Width;
         Kit.IconWell(at, S(36), icon, quiet: true);

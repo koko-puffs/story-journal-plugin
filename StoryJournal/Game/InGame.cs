@@ -81,6 +81,24 @@ public static class InGame
         }
     }
 
+    /// <summary>
+    /// Where on the screen the non-player you're targeting stands (a little above their feet, about their middle),
+    /// when it's <paramref name="name"/> and on the screen; else null. For Who's that?'s tether to its card.
+    /// </summary>
+    public static System.Numerics.Vector2? TargetOnScreen(string name)
+    {
+        try
+        {
+            var t = Services.Targets.Target;
+            if (t == null || t.ObjectKind == ObjectKind.Pc || !string.Equals(t.Name.TextValue, name, StringComparison.OrdinalIgnoreCase)) return null;
+            return Services.GameGui.WorldToScreen(t.Position + new System.Numerics.Vector3(0, 1.2f, 0), out var at) ? at : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Busy: combat, a duty, a cutscene or a loading screen; nothing comes to you and nothing moves.</summary>
     public static bool Busy => InCombat || InDuty || InCutscene || Loading;
 

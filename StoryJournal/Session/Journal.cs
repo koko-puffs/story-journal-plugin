@@ -187,7 +187,32 @@ public sealed class Journal : IDisposable
             Config.Save();
         }
         Codex.Tick(now);
-        Toasts.RemoveAll(t => now - t.At > TimeSpan.FromSeconds(6));
+        TellAnswered();
+        Toasts.RemoveAll(t => now - t.At > TimeSpan.FromSeconds(ToastSeconds));
+    }
+
+    /// <summary>How long a toast stays, in seconds.</summary>
+    public const double ToastSeconds = 6;
+
+    /// <summary>The reading's index when the theories due were last looked at (−1: not yet, for this character), and those due then.</summary>
+    private int toldIndex = -1;
+
+    private HashSet<Guid> dueSeen = new();
+
+    /// <summary>
+    /// The story answering a theory (motion.html's evening, 21:40): when a quest finished brings a theory due, a small
+    /// toast with a cracked seal, once. Those due already when the story's first read (at login) are only noted:
+    /// nothing replays news.
+    /// </summary>
+    private void TellAnswered()
+    {
+        if (Memory == null || Story.Now is not { } s) return;
+        var index = s.Progress.Index;
+        var due = DueTheories();
+        foreach (var _ in TheoryAnswers.JustAnswered(toldIndex, index, due.Select(t => t.Id), dueSeen))
+            AddToast("The story answered a theory", null, "Open it on the site?", ToastKind.Opened);
+        toldIndex = index;
+        dueSeen = due.Select(t => t.Id).ToHashSet();
     }
 
     /// <summary>
@@ -235,6 +260,8 @@ public sealed class Journal : IDisposable
         if (characterKey != null && clock.Current is { } other && other.Character != player.Key) Ended(clock.End(DateTime.UtcNow)!, true);
         // Another character: the story read was the other's.
         if (player.Key != lastCharacter) Story.Reset();
+        toldIndex = -1;
+        dueSeen.Clear();
         lastCharacter = player.Key;
         characterKey = player.Key;
         var memory = Config.Memory(player.Key);
@@ -456,7 +483,7 @@ public sealed class Journal : IDisposable
         var quest = Story.Now is { CurrentTaken: true, Current: { } q } ? q.Id : (uint?)null;
         Record(EventKind.Line, Events.Line(line.Speaker, line.Text, quest, Places.Territory(player.Territory).Name), DateTime.UtcNow);
         var words = line.Text.Length > 90 ? "…" + line.Text[^88..].TrimStart() : line.Text;
-        AddToast("Line saved", $"“{words}”", $"{(line.Speaker.Length > 0 ? line.Speaker : "Someone")} · this session", ToastKind.Quill);
+        AddToast("Saved the line", null, $"{(line.Speaker.Length > 0 ? line.Speaker : "Someone")} · to tonight's entry", ToastKind.Quill);
     }
 
     /// <summary>Takes a photo without the HUD, for the session under way.</summary>
@@ -481,23 +508,20 @@ public sealed class Journal : IDisposable
 
     private void OnPhoto(QueuedPhoto photo)
     {
-        var today = 0;
         if (clock.Current is { } cur && cur.Id == photo.Session)
         {
-            today = ++cur.Tally.Photos;
+            cur.Tally.Photos++;
         }
         else if (Queue.Session(photo.Session) is { } s)
         {
             // Its session ended while the picture was made.
-            today = ++s.Tally.Photos;
+            s.Tally.Photos++;
             Queue.PutSession(s);
         }
         Sync.Kick();
-        AddToast("Photo taken", null, $"HUD hidden for the shot · added to this session · {Ui(today)} this session", ToastKind.Photo);
+        AddToast("Photo taken", null, "HUD hidden · to tonight's entry", ToastKind.Photo);
         if (Services.GameGui.GameUiHidden && Config.ChatMessages)
             Services.Chat.Print("Story Journal: photo taken. It goes to the site with this session.");
-
-        static string Ui(int n) => n.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>Asks for the quick note (the key, or /sj note with nothing after it).</summary>
@@ -515,7 +539,7 @@ public sealed class Journal : IDisposable
         });
         Config.Save();
         Sync.KickNotes();
-        AddToast("Note saved", body.Length > 80 ? body[..78] + "…" : body, "it goes to this session's entry", ToastKind.Plain);
+        AddToast("Note kept", null, subject.Length > 0 ? $"About {subject} · to tonight's entry" : "To tonight's entry", ToastKind.Quill);
         return true;
     }
 
@@ -536,8 +560,7 @@ public sealed class Journal : IDisposable
         });
         Config.Save();
         Sync.KickNotes();
-        AddToast("Theory sealed", body.Length > 80 ? body[..78] + "…" : body,
-            checkAfter > 0 ? $"opens in about {checkAfter} quests" : "settle it here or on the site", ToastKind.Seal);
+        AddToast("Theory sealed", null, checkAfter > 0 ? $"Opens in about {checkAfter} quests" : "Settle it here or on the site", ToastKind.Seal);
         return true;
     }
 
@@ -568,7 +591,7 @@ public sealed class Journal : IDisposable
         }
         Config.Save();
         Sync.KickNotes();
-        AddToast("Theory answered", TheoryAnswers.Toast(status), null, ToastKind.Seal);
+        AddToast("Theory answered", null, TheoryAnswers.Toast(status), status == TheoryAnswers.Sealed ? ToastKind.Seal : ToastKind.Opened);
     }
 
     /// <summary>Ends the session now (/sj end): its card, to give it a title.</summary>
@@ -643,7 +666,13 @@ public sealed class Journal : IDisposable
             AddToast("Nothing to flag", "Take the next main-story quest first.", null, ToastKind.Plain);
             return;
         }
-        if (!MapFlag.Set(q.Id, s.Sequence, out var why)) AddToast("No flag", why, null, ToastKind.Plain);
+        if (!MapFlag.Set(q.Id, s.Sequence, out var why))
+        {
+            AddToast("No flag", why, null, ToastKind.Plain);
+            return;
+        }
+        // The flag's down: the tracker's ribbon drops again with the step (motion.html's evening, 20:02).
+        if (Config.ShowTracker) TrackerDropped = DateTime.UtcNow;
     }
 
     public void MemoryChanged() => memoryDirty = true;
@@ -722,7 +751,8 @@ public sealed class Journal : IDisposable
         if (arrivalWaiting is { } arrival)
         {
             if (now - arrival.At > TimeSpan.FromMinutes(2)) arrivalWaiting = null;
-            else if (calm)
+            // Margin notes never two at once: it waits while a Who's that? is up.
+            else if (calm && Who == null)
             {
                 Arrival = arrival with { At = now };
                 arrivalWaiting = null;
@@ -761,6 +791,12 @@ public sealed class Journal : IDisposable
             var name = target.Name.TextValue;
             if (Memory?.People.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)) is not { } met) return;
             Who = MakeWho(met);
+            // One margin note at a time: an arrival up now steps aside and comes back after.
+            if (Arrival is { } up)
+            {
+                arrivalWaiting = up with { At = DateTime.UtcNow };
+                Arrival = null;
+            }
         }
         catch (Exception ex)
         {

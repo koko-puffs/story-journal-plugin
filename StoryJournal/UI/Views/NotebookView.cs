@@ -24,9 +24,6 @@ public sealed partial class MainWindow
     private (float X, float W) lineFrom;
     private (float X, float W) lineTo = (float.NaN, 0);
 
-    /// <summary>Seals pressed this time the window's open (a theory sealed now: its wax drops once).</summary>
-    private readonly Dictionary<Guid, Anim> sealPress = new();
-
     private static readonly string[] AfterWords = { "Don't ask", "In 5 quests", "In 10", "In 25" };
     private static readonly int[] AfterValues = { 0, 5, 10, 25 };
 
@@ -56,16 +53,17 @@ public sealed partial class MainWindow
         for (var i = 0; i < tabs.Length; i++)
         {
             var (label, count, isOn) = tabs[i];
-            var lw = Txt.Measure(label, Face.SansSemibold, 15).X;
-            var cw = Txt.Measure(Ui.Count(count), Face.Sans, 14).X;
+            // The site's tabs: Geist 600 14px, muted (ink when open), the count after in faint 500.
+            var lw = Txt.Measure(label, Face.SansSemibold, 14).X;
+            var cw = Txt.Measure(Ui.Count(count), Face.SansMedium, 14).X;
             var tw = lw + S(6) + cw;
             var (clicked, hovered, _) = Kit.Hit(Ids.Of("##nb-tab", i), new Vector2(x, at.Y), new Vector2(tw, S(34)));
-            Txt.Line(dl, new Vector2(x, at.Y), label, Face.SansSemibold, 15, isOn || hovered ? Palette.Ink : Palette.Muted, 30);
-            Txt.Line(dl, new Vector2(x + lw + S(6), at.Y), Ui.Count(count), Face.Sans, 14, Palette.Faint, 30);
+            Txt.Line(dl, new Vector2(x, at.Y), label, Face.SansSemibold, 14, isOn || hovered ? Palette.Ink : Palette.Muted, 30);
+            Txt.Line(dl, new Vector2(x + lw + S(6), at.Y), Ui.Count(count), Face.SansMedium, 14, Palette.Faint, 30);
             if (isOn) on = (x, tw);
             var theoriesTab = i == 0;
             if (clicked) Later(() => notebookTheories = theoriesTab);
-            x += tw + S(24);
+            x += tw + S(22);
         }
         dl.AddLine(new Vector2(at.X, at.Y + S(34) + 0.5f), new Vector2(at.X + w, at.Y + S(34) + 0.5f), Palette.U32(Palette.Line), 1f);
         if (float.IsNaN(lineTo.X)) lineFrom = lineTo = on;
@@ -128,17 +126,10 @@ public sealed partial class MainWindow
             {
                 if (!t.Sent) meta += " · waiting to reach the site";
                 else if (t.DueIndex > 0 && index is { } now && t.DueIndex > now) meta += $" · opens in about {Ui.Plural(t.DueIndex - now, "quest", "quests")}";
-                else if (t.DueIndex <= 0) meta += " · \"don't ask me\", settle it yourself";
+                else if (t.DueIndex <= 0) meta += " · “don’t ask me”, settle it yourself";
             }
-            // A seal pressed just now drops with its weight, once.
-            if (!t.Answered && DateTime.UtcNow - t.SealedAt < TimeSpan.FromSeconds(4) && !sealPress.ContainsKey(t.Id))
-            {
-                var anim = new Anim(Durations.Wax, Ease.Linear);
-                anim.Start(Ink.Now);
-                sealPress[t.Id] = anim;
-            }
-            var press = sealPress.TryGetValue(t.Id, out var p) ? Ink.PressScale(p.Time(Ink.Now, Ink.Still)) : 1f;
-            TheoryCard(Ids.Of("##nb-th", i++), Shapes.Seed(t.Id.ToString()), t.Body, meta, t.Answered ? t.Status : null, t.Answered, press);
+            // Still (motion.html: a milestone's is the only seal pressed in game).
+            TheoryCard(Ids.Of("##nb-th", i++), Shapes.Seed(t.Id.ToString()), t.Body, meta, t.Answered ? t.Status : null, t.Answered, null);
             Kit.Gap(10);
         }
         if (due.Count == 0 && mine.Count == 0) Parts.Quiet("No theories yet. Write what you think will happen: it's sealed with where you are, and the story answers it.");
@@ -147,18 +138,19 @@ public sealed partial class MainWindow
         Kit.Gap(6);
         if (composing)
         {
-            Kit.BeginPanel("##nb-compose", 16, 16, 16, Palette.Over(Palette.QuillSoft, Palette.Leaf), Palette.QuillLine, Palette.RadiusXl);
+            Kit.BeginPanel("##nb-compose", 16, 16, 16, Palette.Over(Palette.QuillSoft, Palette.Leaf), Palette.QuillLine, Palette.RadiusMd);
             Ink.KickerRow("A new theory", Palette.Quill);
             Kit.Gap(6);
             var a = Kit.At;
-            Kit.Field("##th-text", a, Kit.Width, ref theoryText, "What do you think will happen?", null, 400, ImGuiInputTextFlags.None, Face.ReadItalic, 14, Palette.QuillInk);
+            Kit.Field("##th-text", a, Kit.Width, ref theoryText, "What do you think will happen?", null, 400, ImGuiInputTextFlags.None, Face.ReadItalic, 14, Palette.QuillInk,
+                false, 36, Palette.QuillLine);
             Kit.Reserve(a, Kit.Width, S(36));
             Kit.Gap(8);
             var b = Kit.At;
             var picked = Array.IndexOf(AfterValues, theoryAfter);
             var next = Kit.Segmented("##th-after", b, AfterWords, picked < 0 ? 2 : picked, 0, Kit.Width);
             if (next >= 0 && next < AfterValues.Length) theoryAfter = AfterValues[next];
-            Kit.Reserve(b, Kit.Width, S(36));
+            Kit.Reserve(b, Kit.Width, Kit.SegmentedHeight);
             Kit.Gap(8);
             Parts.Quiet("Sealed with where you are in the story; you can't change it after. The plugin asks how it went once you've played that far.");
             Kit.Gap(10);
@@ -199,42 +191,45 @@ public sealed partial class MainWindow
     private static string Day(DateTime? utc) => utc is { } d ? d.ToLocalTime().ToString("ddd d MMM", CultureInfo.InvariantCulture) : "a while ago";
 
     /// <summary>
-    /// A theory under wax: the seal (cracked once answered), your words in candle gold, when and where it was
-    /// sealed, and how it went (a stamp: Called it, Partly, Not quite, Changed my mind).
+    /// A theory under wax, as the mock-up's: the seal (34px; once answered cracked, a tick on it), your words in
+    /// Literata's italic and candle gold, when and where it was sealed in faint, and how it went as a chip (Called it
+    /// in green with a tick, Partly in gold, Not quite and Changed my mind plain); a called one's edge goes green.
     /// </summary>
     private static void TheoryCard(string id, int seed, string body, string meta, string? status, bool broken, float? press)
     {
-        Kit.BeginPanel(id, 14, 16, 14, Palette.Leaf, broken ? Palette.LineStrong : Palette.Line, Palette.RadiusLg);
+        var edge = status == TheoryAnswers.Called ? Palette.Rgba(134, 217, 168, 0.3f) : status == TheoryAnswers.Partly ? Palette.QuillLine : Palette.Line;
+        Kit.BeginPanel(id, 12, 12, 12, Palette.Leaf, edge, Palette.RadiusMd);
         var at = Kit.At;
         var w = Kit.Width;
         var r = S(17);
-        var tx = at.X + r * 2 + S(16);
+        var tx = at.X + r * 2 + S(12);
         var tw = w - (tx - at.X);
         var h = Lines.Draw(Kit.Dl, new Vector2(tx, at.Y), tw, body, Face.ReadItalic, 14, Palette.QuillInk, 21);
-        h += S(2) + Lines.Draw(Kit.Dl, new Vector2(tx, at.Y + h + S(2)), tw, meta, Face.Sans, 11, Palette.Muted, 16);
+        h += S(4) + Lines.Draw(Kit.Dl, new Vector2(tx, at.Y + h + S(4)), tw, meta, Face.Sans, 11, Palette.Faint, 16);
         if (status is { Length: > 0 })
         {
-            var tone = status switch
+            var kind = status switch
             {
-                TheoryAnswers.Called => Ink.StampTone.Good,
-                TheoryAnswers.Partly => Ink.StampTone.Quill,
-                _ => Ink.StampTone.Muted,
+                TheoryAnswers.Called => ChipKind.Ok,
+                TheoryAnswers.Partly => ChipKind.Quill,
+                _ => ChipKind.Plain,
             };
-            Ink.Stamp(Kit.Dl, new Vector2(tx, at.Y + h + S(8)), TheoryAnswers.Stamp(status), tone);
-            h += S(28);
+            Kit.Chip(new Vector2(tx, at.Y + h + S(8)), TheoryAnswers.Stamp(status), kind, status == TheoryAnswers.Called, 22);
+            h += S(8 + 22);
         }
-        Ink.Seal(Kit.Dl, at + new Vector2(r, r), r, seed, broken, null, Icon.Feather, press ?? 1f);
+        Ink.Seal(Kit.Dl, at + new Vector2(r, r), r, seed, broken, null, broken ? Icon.Check : Icon.Feather, press ?? 1f);
         Kit.Reserve(at, w, MathF.Max(r * 2, h));
         Kit.EndPanel();
     }
 
     private void DrawNotes()
     {
-        Kit.BeginPanel("##nb-note", 16, 16, 16, Palette.Over(Palette.QuillSoft, Palette.Leaf), Palette.QuillLine, Palette.RadiusXl);
+        Kit.BeginPanel("##nb-note", 16, 16, 16, Palette.Over(Palette.QuillSoft, Palette.Leaf), Palette.QuillLine, Palette.RadiusMd);
         Ink.KickerRow("A new note", Palette.Quill);
         Kit.Gap(6);
         var a = Kit.At;
-        Kit.Field("##notes-text", a, Kit.Width, ref noteText, "A thought, a question, something to remember…", null, 2000, ImGuiInputTextFlags.None, Face.ReadItalic, 14, Palette.QuillInk);
+        Kit.Field("##notes-text", a, Kit.Width, ref noteText, "A thought, a question, something to remember…", null, 2000, ImGuiInputTextFlags.None, Face.ReadItalic, 14, Palette.QuillInk,
+            false, 36, Palette.QuillLine);
         Kit.Reserve(a, Kit.Width, S(36));
         Kit.Gap(8);
         Parts.Field("##notes-subject", ref noteSubject, "About someone or something (optional): Haurchefant", 60, ImGuiInputTextFlags.None, Icon.Users);
@@ -269,12 +264,13 @@ public sealed partial class MainWindow
         if (notes.Count == 0) Parts.Quiet(journal.Sync.Hello == null ? "They show here once the site has answered." : "None: every question answered.");
         foreach (var n in notes)
         {
-            Ruled(() =>
-            {
-                Lines.Para(n.Body, Palette.QuillInk, 14, 21, Face.ReadItalic);
-                Parts.Quiet((n.Subject.Length > 0 ? $"about {n.Subject} · " : string.Empty) + (n.At is { } at2 ? Ui.Ago(at2) : string.Empty));
-            }, true);
-            Kit.Gap(12);
+            // A note, as the mock-up's: a box on the ground's second ink, your words in candle gold, who and when in faint.
+            Kit.BeginPanel(Ids.Of("##nb-open", n.GetHashCode()), 10, 12, 10, Palette.Ground2, Palette.Line, 10);
+            Lines.Para(n.Body, Palette.QuillInk, 14, 21, Face.ReadItalic);
+            Kit.Gap(4);
+            Lines.Para((n.Subject.Length > 0 ? $"about {n.Subject} · " : string.Empty) + (n.At is { } at2 ? Ui.Ago(at2) : string.Empty), Palette.Faint, 11, 16);
+            Kit.EndPanel();
+            Kit.Gap(8);
         }
         Kit.Gap(4);
         var l = Kit.At;

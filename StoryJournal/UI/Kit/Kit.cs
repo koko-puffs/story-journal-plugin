@@ -32,7 +32,7 @@ public enum Btn
     Ink,
 }
 
-/// <summary>Control heights, as the site's: 30 compact, 36 default, 44 for the one big call.</summary>
+/// <summary>Control heights, as the plugin's mock-up has them: 26 for a card's small row, 32 in a window or card, 36 default, 44 for the one big call.</summary>
 public enum BtnSize
 {
     Tiny,
@@ -150,27 +150,30 @@ public static partial class Kit
 
     private static (float Height, float Pad, int Px) Spec(BtnSize size) => size switch
     {
-        BtnSize.Tiny => (30, 12, 13),
-        BtnSize.Sm => (30, 12, 13),
+        BtnSize.Tiny => (26, 10, 11),
+        BtnSize.Sm => (32, 13, 13),
         BtnSize.Lg => (44, 22, 14),
         _ => (36, 16, 13),
     };
 
-    private static Face FaceOf(Btn style) => Face.SansMedium;
+    private static Face FaceOf(Btn style) => Face.SansSemibold;
 
     public static float ButtonHeight(BtnSize size) => S(Spec(size).Height);
+
+    /// <summary>A button's icon for its height (CSS px): 18 on the big one, 15 in a window's (the mock-up's), 13 on a card's small row.</summary>
+    private static float IconCss(float heightCss) => heightCss >= 40 ? 18 : heightCss < 30 ? 13 : 15;
 
     public static float ButtonWidth(string label, BtnSize size = BtnSize.Md, Icon? icon = null, Btn style = Btn.Glass)
     {
         var (h, pad, px) = Spec(size);
         if (label.Length == 0) return S(h);
         var text = Txt.Measure(label, FaceOf(style), px).X;
-        return S(pad) * 2 + text + (icon != null ? S(16 + 8) : 0);
+        return S(pad) * 2 + text + (icon != null ? S(IconCss(h) + 8) : 0);
     }
 
-    /// <summary>A pill button. Width 0 fits its words; an empty label makes it a round icon button.</summary>
+    /// <summary>A button, as the plugin's mock-up draws them (radius 8, Geist 600). Width 0 fits its words; an empty label makes it a square icon button.</summary>
     public static bool Button(string id, Vector2 pos, string label, Btn style = Btn.Glass, BtnSize size = BtnSize.Md, Icon? icon = null,
-        float width = 0, bool disabled = false, string? tip = null, float height = 0)
+        float width = 0, bool disabled = false, string? tip = null, float height = 0, bool iconAfter = false)
     {
         var (hCss, padCss, px) = Spec(size);
         var h = height > 0 ? height : S(hCss);
@@ -196,9 +199,10 @@ public static partial class Kit
                 ink = Palette.Ground;
                 break;
             case Btn.Quiet:
+                // The ghost: words only, muted, ink when pointed at.
                 fill = held ? Palette.LinePicked : hovered ? Palette.LineFaint : Vector4.Zero;
                 edge = Vector4.Zero;
-                ink = hovered ? Palette.Ink : Palette.Light;
+                ink = hovered ? Palette.Ink : Palette.Muted;
                 break;
             case Btn.Danger:
                 fill = held ? Palette.DangerWash : Vector4.Zero;
@@ -217,32 +221,34 @@ public static partial class Kit
                 ink = Palette.Quill;
                 break;
             default:
-                fill = hovered ? Palette.LineFaint : Palette.ButtonFill;
+                fill = hovered ? Palette.Hover : Palette.ButtonFill;
                 edge = hovered ? Palette.LineHover : Palette.LineStrong;
                 ink = Palette.Ink;
                 break;
         }
         var dl = Dl;
         var max = pos + new Vector2(w, h);
-        var r = h / 2;
+        var r = MathF.Min(h / 2, S(8));
         if (fill.W > 0) dl.AddRectFilled(pos, max, Palette.U32(fill), r);
         if (style == Btn.Glass && held) dl.AddRectFilled(pos, max, Palette.U32(Palette.LinePicked), r);
         if (edge.W > 0) dl.AddRect(pos + new Vector2(0.5f), max - new Vector2(0.5f), Palette.U32(edge), r, ImDrawFlags.None, 1f);
 
         var face = FaceOf(style);
-        var iconPx = S(h >= S(40) ? 18 : 16);
+        var iconPx = S(IconCss(h / S(1)));
         // A label wider than a button of a set width is cut to fit (1.0.0: it ran past the pill and the window).
         if (width > 0 && label.Length > 0)
             label = Txt.Fit(label, face, px, MathF.Max(0, w - S(padCss) * 2 - (icon != null ? iconPx + S(8) : 0) + 1));
         var textW = label.Length > 0 ? Txt.Measure(label, face, px).X : 0;
         var content = (icon != null ? iconPx : 0) + (icon != null && label.Length > 0 ? S(8) : 0) + textW;
         var x = pos.X + (w - content) / 2;
-        if (icon is { } ic)
+        if (icon is { } ic && !iconAfter)
         {
             Icons.Draw(dl, ic, new Vector2(x, pos.Y + (h - iconPx) / 2), iconPx, iconInk ?? ink);
             x += iconPx + (label.Length > 0 ? S(8) : 0);
         }
-        if (label.Length > 0) Txt.Line(dl, new Vector2(x, pos.Y), label, face, px, ink, h / S(1));
+        if (label.Length > 0) x += Txt.Line(dl, new Vector2(x, pos.Y), label, face, px, ink, h / S(1));
+        // An arrow that leads on ("On the site →") goes after its words.
+        if (icon is { } after && iconAfter) Icons.Draw(dl, after, new Vector2(x + S(8), pos.Y + (h - iconPx) / 2), iconPx, iconInk ?? ink);
         Palette.Opacity = old;
         FocusRing(pos, max, r);
         return clicked;
@@ -255,17 +261,17 @@ public static partial class Kit
     // ---------------------------------------------------------------------------------------------
     // Switch, segmented pill, chips, pills.
 
-    /// <summary>The site's switch, 44×24: an outline with a grey knob, filled cherry with a dark knob when on. Returns true when flipped.</summary>
+    /// <summary>The plugin's switch, 32×18 (as the mock-up's): a soft fill with a muted knob, the ribbon's deep red with a white knob when on. Returns true when flipped.</summary>
     public static bool Switch(string id, Vector2 pos, bool on, bool disabled = false)
     {
-        var size = new Vector2(S(44), S(24));
+        var size = new Vector2(S(32), S(18));
         var (clicked, hovered, _) = Hit(id, pos, size, disabled);
         var storage = ImGui.GetStateStorage();
         var key = ImGui.GetID(KnobId(id));
         var target = on ? 1f : 0f;
         var t = storage.GetFloat(key, target);
         // The site's 160ms.
-        t = ReducedMotion ? target : MoveTowards(t, target, ImGui.GetIO().DeltaTime / 0.16f);
+        t = Ink.Still ? target : MoveTowards(t, target, ImGui.GetIO().DeltaTime / 0.16f);
         storage.SetFloat(key, t);
 
         var old = Palette.Opacity;
@@ -274,12 +280,14 @@ public static partial class Kit
         var max = pos + size;
         var r = size.Y / 2;
         var e = Ease(t);
-        if (e > 0) dl.AddRectFilled(pos, max, Palette.U32(Palette.WithAlpha(Palette.Accent, e)), r);
-        var edge = on ? Palette.Accent : hovered ? Palette.LineHover : Palette.LineStrong;
-        dl.AddRect(pos + new Vector2(0.5f), max - new Vector2(0.5f), Palette.U32(edge), r, ImDrawFlags.None, 1f);
-        var knob = pos + new Vector2(S(4 + 8) + S(20) * e, size.Y / 2);
-        var knobColor = Mix(Palette.Muted, Palette.OnAccent, e);
-        dl.AddCircleFilled(knob, S(8), Palette.U32(knobColor), 24);
+        dl.AddRectFilled(pos, max, Palette.U32(Mix(Palette.Hover, Palette.RibbonDeep, e)), r);
+        if (e < 1)
+        {
+            var edge = hovered ? Palette.LineHover : Palette.LineStrong;
+            dl.AddRect(pos + new Vector2(0.5f), max - new Vector2(0.5f), Palette.U32(Palette.WithAlpha(edge, edge.W * (1 - e))), r, ImDrawFlags.None, 1f);
+        }
+        var knob = pos + new Vector2(S(3 + 6) + S(14) * e, size.Y / 2);
+        dl.AddCircleFilled(knob, S(6), Palette.U32(Mix(Palette.Muted, Palette.White, e)), 20);
         Palette.Opacity = old;
         FocusRing(pos, max, r);
         return clicked;
@@ -303,6 +311,9 @@ public static partial class Kit
 
     private static Vector4 Mix(Vector4 a, Vector4 b, float t) => a + (b - a) * t;
 
+    /// <summary>The pick-one pill's height (screen px).</summary>
+    public static float SegmentedHeight => S(32);
+
     /// <summary>The segmented pill's width; with <paramref name="maxWidth"/>, what it shrinks to (its words keep at least 6px either side).</summary>
     public static float SegmentedWidth(IReadOnlyList<string> items, float maxWidth = 0) =>
         SegmentedFrame(items) + items.Count * 2 * SegmentPad(items, maxWidth);
@@ -311,14 +322,14 @@ public static partial class Kit
     private static float SegmentedFrame(IReadOnlyList<string> items)
     {
         var w = S(3) * 2 + S(1) * 2 + S(2) * (items.Count - 1);
-        foreach (var s in items) w += Txt.Measure(s, Face.SansMedium, 13).X;
+        foreach (var s in items) w += Txt.Measure(s, Face.SansSemibold, 12).X;
         return w;
     }
 
-    /// <summary>The padding either side of each item's words: 14px, less when the pill must fit a narrower width.</summary>
+    /// <summary>The padding either side of each item's words: 10px, less when the pill must fit a narrower width.</summary>
     private static float SegmentPad(IReadOnlyList<string> items, float maxWidth)
     {
-        var pad = S(14);
+        var pad = S(10);
         if (maxWidth <= 0 || items.Count == 0) return pad;
         var full = SegmentedFrame(items) + items.Count * 2 * pad;
         if (full <= maxWidth) return pad;
@@ -326,8 +337,8 @@ public static partial class Kit
     }
 
     /// <summary>
-    /// The segmented pill (Settings → Pace, Ready's Keep / Clear out / Swap): 40 tall outside, 32
-    /// inside, the picked one in a soft white. Items whose bit is set in <paramref name="disabledMask"/>
+    /// The pick-one pill (Settings → Margin notes, a theory's "ask me in"), the plugin's size: 32 tall outside, 26
+    /// inside, on the ground's second ink with the line edge; the picked one on the soft fill with the strong edge. Items whose bit is set in <paramref name="disabledMask"/>
     /// are at 40% and can't be picked; <paramref name="tips"/> are each item's tooltip (null for none).
     /// With <paramref name="maxWidth"/>, the items' padding shrinks so the pill fits.
     /// </summary>
@@ -342,15 +353,16 @@ public static partial class Kit
         var dl = Dl;
         var pad = SegmentPad(items, maxWidth);
         var total = SegmentedFrame(items) + items.Count * 2 * pad;
-        var h = S(36);
-        dl.AddRect(pos + new Vector2(0.5f), pos + new Vector2(total, h) - new Vector2(0.5f), Palette.U32(Palette.LineStrong), h / 2, ImDrawFlags.None, 1f);
+        var h = SegmentedHeight;
+        dl.AddRectFilled(pos, pos + new Vector2(total, h), Palette.U32(Palette.Ground2), h / 2);
+        dl.AddRect(pos + new Vector2(0.5f), pos + new Vector2(total, h) - new Vector2(0.5f), Palette.U32(Palette.Line), h / 2, ImDrawFlags.None, 1f);
         var x = pos.X + S(1) + S(3);
         var result = -1;
         for (var i = 0; i < items.Count; i++)
         {
-            var w = Txt.Measure(items[i], Face.SansMedium, 13).X + pad * 2;
-            var p = new Vector2(x, pos.Y + S(1) + S(3));
-            var size = new Vector2(w, S(28));
+            var w = Txt.Measure(items[i], Face.SansSemibold, 12).X + pad * 2;
+            var p = new Vector2(x, pos.Y + S(1) + S(2));
+            var size = new Vector2(w, h - S(1) * 2 - S(2) * 2);
             var on = i == selected;
             var disabled = (disabledMask & (1 << i)) != 0;
             var (clicked, hovered, _) = Hit(Ids.Of(id, i), p, size, disabled);
@@ -359,9 +371,13 @@ public static partial class Kit
                 Tooltip(tip);
             var old = Palette.Opacity;
             if (disabled) Palette.Opacity = old * 0.4f;
-            if (on) dl.AddRectFilled(p, p + size, Palette.U32(Palette.Picked), size.Y / 2);
+            if (on)
+            {
+                dl.AddRectFilled(p, p + size, Palette.U32(Palette.Picked), size.Y / 2);
+                dl.AddRect(p + new Vector2(0.5f), p + size - new Vector2(0.5f), Palette.U32(Palette.LineStrong), size.Y / 2, ImDrawFlags.None, 1f);
+            }
             else if (hovered) dl.AddRectFilled(p, p + size, Palette.U32(Palette.LineFaint), size.Y / 2);
-            Txt.Line(dl, new Vector2(p.X + pad, p.Y), items[i], Face.SansMedium, 13, on || hovered ? Palette.Ink : Palette.Muted, 28);
+            Txt.Line(dl, new Vector2(p.X + pad, p.Y), items[i], Face.SansSemibold, 12, on || hovered ? Palette.Ink : Palette.Muted, size.Y / S(1));
             Palette.Opacity = old;
             FocusRing(p + new Vector2(S(4)), p + size - new Vector2(S(4)), size.Y / 2 - S(4));
             x += w + S(2);
@@ -501,16 +517,18 @@ public static partial class Kit
     public static float StepperWidth(string value) => S(36) * 2 + MathF.Max(S(56), Txt.Measure(value, Face.Mono, 13).X + S(16));
 
     /// <summary>
-    /// A field you type in, as the site's: 36 tall, radius 12, the strong edge (white while you type in
-    /// it), its dark fill, an icon before the words, the hint in faint. Returns true when the text changed.
+    /// A field you type in, as the plugin's mock-up: 36 tall unless told, radius 8, the strong edge (or
+    /// <paramref name="edge"/>: the quill's for your own words; white while you type in it), its dark fill, an
+    /// icon before the words, the hint in faint (or <paramref name="hintInk"/>). Returns true when the text changed.
     /// </summary>
     /// <param name="flags">ImGui's own, as Password for a secret.</param>
     public static bool Field(string id, Vector2 pos, float width, ref string text, string hint, Icon? icon = null, int maxLength = 128,
-        ImGuiInputTextFlags flags = ImGuiInputTextFlags.None, Face face = Face.Sans, int px = 13, Vector4? ink = null, bool bare = false, float heightCss = 36)
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags.None, Face face = Face.Sans, int px = 13, Vector4? ink = null, bool bare = false, float heightCss = 36,
+        Vector4? edge = null, Vector4? hintInk = null)
     {
         var dl = Dl;
         var h = S(heightCss);
-        var r = S(Palette.RadiusMd);
+        var r = S(Palette.RadiusSm);
         var max = pos + new Vector2(width, h);
         if (!bare) dl.AddRectFilled(pos, max, Palette.U32(Palette.Field), r);
         var x = pos.X + (bare ? 0 : S(12));
@@ -525,7 +543,7 @@ public static partial class Kit
         {
             var fh = ImGui.GetFontSize();
             ImGui.PushStyleColor(ImGuiCol.Text, ink ?? Palette.Ink);
-            ImGui.PushStyleColor(ImGuiCol.TextDisabled, Palette.Faint);
+            ImGui.PushStyleColor(ImGuiCol.TextDisabled, hintInk ?? Palette.Faint);
             ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(0, (h - fh) / 2));
             var keep = ImGui.GetCursorScreenPos();
             ImGui.SetCursorScreenPos(new Vector2(x, pos.Y));
@@ -538,8 +556,8 @@ public static partial class Kit
             ImGui.PopStyleVar();
             ImGui.PopStyleColor(2);
             ImGui.SetCursorScreenPos(keep);
-            var edge = active ? Palette.Ink : hovered ? Palette.LineHover : Palette.LineStrong;
-            if (!bare) dl.AddRect(pos + new Vector2(0.5f), max - new Vector2(0.5f), Palette.U32(edge), r, ImDrawFlags.None, 1f);
+            var line = active ? Palette.Ink : hovered ? Palette.LineHover : edge ?? Palette.LineStrong;
+            if (!bare) dl.AddRect(pos + new Vector2(0.5f), max - new Vector2(0.5f), Palette.U32(line), r, ImDrawFlags.None, 1f);
         }
         return changed;
     }
@@ -610,19 +628,45 @@ public static partial class Kit
     /// A panel, as the site's cards (its near-black fill, the 1px line edge, radius 16). Lay its rows
     /// between this and <see cref="EndPanel"/>; padding is CSS pixels (top, right, bottom, left).
     /// </summary>
-    public static void BeginPanel(string id, float padTop, float padX, float padBottom, Vector4? fill = null, Vector4? edge = null, float radius = Palette.RadiusLg)
+    /// <remarks>
+    /// With <paramref name="fillTop"/> its fill runs from that colour at the top to <paramref name="fill"/> at
+    /// <paramref name="fillStop"/> of its height (the site's leaf gradients), as <see cref="Leaf"/> draws it.
+    /// </remarks>
+    public static void BeginPanel(string id, float padTop, float padX, float padBottom, Vector4? fill = null, Vector4? edge = null, float radius = Palette.RadiusLg,
+        Vector4? fillTop = null, float fillStop = 0.7f)
     {
         var at = At;
         var w = Width;
         var key = ImGui.GetID(id);
         var r = S(radius);
         if (Heights.TryGetValue(key, out var h) && h > 0)
-            Dl.AddRectFilled(at, at + new Vector2(w, h), Palette.U32(fill ?? Palette.Card), r);
+        {
+            if (fillTop is { } topColor) Leaf(at, at + new Vector2(w, h), topColor, fill ?? Palette.Card, r, fillStop);
+            else Dl.AddRectFilled(at, at + new Vector2(w, h), Palette.U32(fill ?? Palette.Card), r);
+        }
         Panels.Push((key, at, w, S(padBottom), edge ?? Palette.Line, r));
         ImGui.SetCursorScreenPos(at + new Vector2(0, S(padTop)));
         ImGui.Dummy(Vector2.Zero);
         ImGui.SetCursorScreenPos(at + new Vector2(0, S(padTop)));
         PushBox(at.X + S(padX), w - S(padX) * 2);
+    }
+
+    /// <summary>
+    /// A rounded fill running top to bottom from <paramref name="top"/> to <paramref name="bottom"/> at
+    /// <paramref name="stop"/> of its height. ImGui's gradient can't be round, so the rounded top is the top colour,
+    /// the gradient a plain rectangle under it, and the rest the bottom colour with its rounded foot.
+    /// </summary>
+    public static void Leaf(Vector2 min, Vector2 max, Vector4 top, Vector4 bottom, float radius, float stop = 0.7f)
+    {
+        var dl = Dl;
+        var h = max.Y - min.Y;
+        if (h <= 0) return;
+        var r = MathF.Min(radius, h / 2);
+        var g0 = min.Y + r;
+        var g1 = MathF.Max(g0, min.Y + h * stop);
+        dl.AddRectFilled(min, new Vector2(max.X, g0 + 1), Palette.U32(top), r, ImDrawFlags.RoundCornersTop);
+        if (g1 > g0) dl.AddRectFilledMultiColor(new Vector2(min.X, g0), new Vector2(max.X, g1), Palette.U32(top), Palette.U32(top), Palette.U32(bottom), Palette.U32(bottom));
+        dl.AddRectFilled(new Vector2(min.X, g1 - 0.5f), max, Palette.U32(bottom), r, ImDrawFlags.RoundCornersBottom);
     }
 
     /// <summary>The panel being laid: its top-left and width (for rows that go edge to edge).</summary>

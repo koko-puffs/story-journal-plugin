@@ -20,6 +20,9 @@ public sealed partial class MainWindow
     private List<DueTheory> due = new();
     private DateTime dueAt;
 
+    /// <summary>A redaction pressed: its ink lifting (650ms, the ink curve).</summary>
+    private readonly Anim redactionLift = new(Durations.Ink, Ease.Ink);
+
     /// <summary>The bookmark's ribbon drops once for each quest (its weight, 650ms).</summary>
     private readonly Anim bookmarkDrop = new(Durations.Ink, Ease.Weight);
     private uint bookmarkFor;
@@ -73,7 +76,7 @@ public sealed partial class MainWindow
         }
         DrawBookmark(story);
         Kit.Gap(14);
-        DrawPair("##now-prev", "##now-ahead", DrawPreviously, () => DrawAhead(story), 0.58f);
+        DrawPair("##now-prev", "##now-ahead", DrawPreviously, () => DrawAhead(story), 0.555f);
     }
 
     /// <summary>The bookmark: the quest, its step with Flag on map, why you're here, who's in it. One card, top to bottom.</summary>
@@ -85,26 +88,27 @@ public sealed partial class MainWindow
             bookmarkFor = q.Id;
             bookmarkDrop.Start(Ink.Now, 0.15f);
         }
-        Kit.BeginPanel("##now-bookmark", 20, 22, 20, Palette.AccentWash, Palette.RibbonLine, Palette.RadiusXl);
+        // A ribboned leaf: its edge in the ribbon's line, its fill a little warmer at the top (#24161a to the leaf, 70% down).
+        Kit.BeginPanel("##now-bookmark", 16, 18, 16, Palette.Leaf, Palette.RibbonLine, Palette.RadiusMd, Palette.Hex(0x24161a));
         var (cardAt, cardW, _) = Kit.Panel;
         Ink.KickerRow("Your bookmark", Palette.Ribbon);
         Kit.Gap(4);
         var at = Kit.At;
         var w = Kit.Width;
-        foreach (var line in Lines.Of(q.Name, w - S(40), Face.Display, 22))
+        foreach (var line in Lines.Of(q.Name, w - S(48), Face.Display, 22))
         {
             var a = Kit.At;
             Txt.Line(Kit.Dl, a, line, Face.Display, 22, Palette.Ink, 30);
             Kit.Reserve(a, w, S(30));
         }
-        Kit.Gap(12);
+        Kit.Gap(10);
 
         // The step, with its place and the flag.
         var stepTop = Kit.At;
-        var stepH = S(64);
+        var stepH = S(62);
         var dl = Kit.Dl;
-        dl.AddRectFilled(stepTop, stepTop + new Vector2(w, stepH), Palette.U32(Palette.Ground2), S(Palette.RadiusLg));
-        dl.AddRect(stepTop + new Vector2(0.5f), stepTop + new Vector2(w, stepH) - new Vector2(0.5f), Palette.U32(Palette.Line), S(Palette.RadiusLg));
+        dl.AddRectFilled(stepTop, stepTop + new Vector2(w, stepH), Palette.U32(Palette.Ground2), S(10));
+        dl.AddRect(stepTop + new Vector2(0.5f), stepTop + new Vector2(w, stepH) - new Vector2(0.5f), Palette.U32(Palette.Line), S(10));
         var tile = S(34);
         var tileAt = stepTop + new Vector2(S(14), (stepH - tile) / 2);
         dl.AddCircleFilled(tileAt + new Vector2(tile / 2), tile / 2, Palette.U32(Palette.RibbonSoft), 24);
@@ -119,8 +123,8 @@ public sealed partial class MainWindow
         var place = new List<string>();
         if (q.Place.Length > 0) place.Add(q.Place);
         if (story.Progress.Current?.Spot is { } spot) place.Add(spot.ToString());
-        Txt.Line(dl, new Vector2(tx, stepTop.Y + S(13)), Txt.Fit(step, Face.SansSemibold, 14, textW), Face.SansSemibold, 14, Palette.Ink, 20);
-        Txt.Line(dl, new Vector2(tx, stepTop.Y + S(34)), Txt.Fit(string.Join(" · ", place), Face.Sans, 12, textW), Face.Sans, 12, Palette.Muted, 17);
+        Txt.Line(dl, new Vector2(tx, stepTop.Y + S(11)), Txt.Fit(step, Face.SansSemibold, 15, textW), Face.SansSemibold, 15, Palette.Ink, 21);
+        Txt.Line(dl, new Vector2(tx, stepTop.Y + S(33)), Txt.Fit(string.Join(" · ", place), Face.Sans, 12, textW), Face.Sans, 12, Palette.Muted, 17);
         if (story.CurrentTaken && Kit.Button("##now-flag", new Vector2(stepTop.X + w - S(14) - flagW, stepTop.Y + (stepH - Kit.ButtonHeight(BtnSize.Sm)) / 2),
                 "Flag on map", Btn.Primary, BtnSize.Sm, Icon.Flag))
             Later(journal.FlagNext);
@@ -132,21 +136,21 @@ public sealed partial class MainWindow
         why.AddRange(story.Journal.Skip(Math.Max(0, story.Journal.Count - 2)));
         if (why.Count > 0)
         {
-            Kit.Gap(16);
+            Kit.Gap(12);
             Ruled(() =>
             {
                 Ink.KickerRow("Why you're here");
                 Kit.Gap(4);
-                Lines.Para(string.Join(" ", why), Palette.Body, 14, 21.5f, Face.Read);
+                Lines.Para(string.Join(" ", why), Palette.Body, 14, 22.4f, Face.Read);
             });
         }
 
         // Who's in it.
         if (story.People.Count > 0)
         {
-            Kit.Gap(14);
+            Kit.Gap(12);
             var row = Kit.At;
-            var x = row.X + Ink.Kicker(Kit.Dl, row + new Vector2(0, S(7)), "In this") + S(12);
+            var x = row.X + Ink.Kicker(Kit.Dl, row + new Vector2(0, S(7)), "In this") + S(10);
             var y = row.Y;
             for (var i = 0; i < story.People.Count; i++)
             {
@@ -155,47 +159,47 @@ public sealed partial class MainWindow
                 if (x + cw > row.X + w && x > row.X + S(80))
                 {
                     x = row.X + S(64);
-                    y += S(32);
+                    y += S(30);
                 }
                 if (PersonChip(Ids.Of("##now-who", i), new Vector2(x, y), name)) Later(() => ShowCodex(name));
                 x += cw + S(6);
             }
-            Kit.Reserve(row, w, y - row.Y + S(28));
+            Kit.Reserve(row, w, y - row.Y + S(26));
         }
         Kit.EndPanel();
-        // The ribbon hangs from the card's top edge, near its right corner, dropped once for each quest.
+        // The ribbon (26×52) hangs from the card's top edge, 22px in from its right corner, dropped once for each quest.
         var drop = bookmarkDrop.Value(Ink.Now, Ink.Still);
-        Ink.Ribbon(Kit.Dl, new Vector2(cardAt.X + cardW - S(56), cardAt.Y - S(1)), S(22), S(46), drop);
+        Ink.Ribbon(Kit.Dl, new Vector2(cardAt.X + cardW - S(22 + 26), cardAt.Y - S(1)), S(26), S(52), drop);
     }
 
     /// <summary>Lays what <paramref name="body"/> draws with a margin rule down its left (the journal's own words).</summary>
     private static void Ruled(Action body, bool quill = false)
     {
         var at = Kit.At;
-        Kit.PushBox(at.X + S(18), Kit.Width - S(18));
+        Kit.PushBox(at.X + S(22), Kit.Width - S(22));
         body();
         Kit.PopBox();
         var end = ImGui.GetCursorScreenPos().Y;
         Ink.Rule(Kit.Dl, at.X, at.Y + S(3), end - S(3), quill);
     }
 
-    private static float PersonChipWidth(string name) => S(28) + Txt.Measure(name, Face.SansMedium, 12).X + S(12);
+    private static float PersonChipWidth(string name) => S(3 + 20 + 6) + Txt.Measure(name, Face.SansSemibold, 12).X + S(10);
 
     /// <summary>Someone in the quest: a pill with their initial in an italic circle; pressed, their Codex card.</summary>
     private static bool PersonChip(string id, Vector2 pos, string name)
     {
         var w = PersonChipWidth(name);
-        var h = S(28);
+        var h = S(26);
         var (clicked, hovered, _) = Kit.Hit(id, pos, new Vector2(w, h));
         var dl = Kit.Dl;
         dl.AddRectFilled(pos, pos + new Vector2(w, h), Palette.U32(hovered ? Palette.Hover : Palette.LeafRaised), h / 2);
         dl.AddRect(pos + new Vector2(0.5f), pos + new Vector2(w, h) - new Vector2(0.5f), Palette.U32(hovered ? Palette.LineStrong : Palette.Line), h / 2);
-        var c = pos + new Vector2(S(14), h / 2);
-        dl.AddCircleFilled(c, S(10), Palette.U32(Palette.Hover), 20);
+        var c = pos + new Vector2(S(3 + 10), h / 2);
+        dl.AddCircleFilled(c, S(10), Palette.U32(Palette.Hex(0x3a2a26)), 20);
         var initial = name.Length > 0 ? name[..1].ToUpperInvariant() : "?";
         var isz = Txt.Measure(initial, Face.DisplayItalic, 15);
-        Txt.Draw(dl, c - isz / 2, initial, Face.DisplayItalic, 15, Palette.Body);
-        Txt.Line(dl, pos + new Vector2(S(28), 0), name, Face.SansMedium, 12, Palette.Ink, h / S(1));
+        Txt.Draw(dl, c - isz / 2, initial, Face.DisplayItalic, 15, Palette.Ink);
+        Txt.Line(dl, pos + new Vector2(S(3 + 20 + 6), 0), name, Face.SansSemibold, 12, Palette.Ink, h / S(1));
         if (hovered) Kit.Tooltip("In the Codex");
         return clicked;
     }
@@ -205,27 +209,28 @@ public sealed partial class MainWindow
     {
         var at = Kit.At;
         var w = Kit.Width;
-        var gap = S(14);
+        var gap = S(12);
         var stacked = w < S(520);
         var lw = stacked ? w : MathF.Floor((w - gap) * split);
         var rw = stacked ? w : w - gap - lw;
         var lastL = pairHeights.TryGetValue(idL, out var hl) ? hl : 0;
         var lastR = pairHeights.TryGetValue(idR, out var hr) ? hr : 0;
-        var pad = S(18);
+        var padY = S(14);
+        var pad = S(16);
         var dl = Kit.Dl;
         float Card(string id, Action body, Vector2 pos, float width, float lastH, float minH)
         {
             var h = MathF.Max(lastH, minH);
             if (h > 0)
             {
-                dl.AddRectFilled(pos, pos + new Vector2(width, h), Palette.U32(Palette.Leaf), S(Palette.RadiusXl));
-                dl.AddRect(pos + new Vector2(0.5f), pos + new Vector2(width, h) - new Vector2(0.5f), Palette.U32(Palette.Line), S(Palette.RadiusXl));
+                dl.AddRectFilled(pos, pos + new Vector2(width, h), Palette.U32(Palette.Leaf), S(Palette.RadiusMd));
+                dl.AddRect(pos + new Vector2(0.5f), pos + new Vector2(width, h) - new Vector2(0.5f), Palette.U32(Palette.Line), S(Palette.RadiusMd));
             }
-            ImGui.SetCursorScreenPos(pos + new Vector2(0, pad));
+            ImGui.SetCursorScreenPos(pos + new Vector2(0, padY));
             Kit.PushBox(pos.X + pad, width - pad * 2);
             body();
             Kit.PopBox();
-            var used = ImGui.GetCursorScreenPos().Y + pad - pos.Y;
+            var used = ImGui.GetCursorScreenPos().Y + padY - pos.Y;
             pairHeights[id] = used;
             return used;
         }
@@ -254,10 +259,12 @@ public sealed partial class MainWindow
             Parts.Quiet(hello == null ? "Your last evenings show here once the site has answered." : "Nothing written yet: your next evenings fill this.");
             return;
         }
-        Ruled(() => Lines.Para(string.Join(" ", lines), Palette.Body, 14, 21.5f, Face.Read));
+        Ruled(() => Lines.Para(string.Join(" ", lines), Palette.Body, 14, 22.4f, Face.Read));
         Kit.Gap(10);
         var a = Kit.At;
-        if (Kit.Link("##now-recap", a, "Read it all on the site →", 12)) Dalamud.Utility.Util.OpenLink(SiteLink.RecapUrl);
+        const string recap = "Read it all on the site";
+        if (Kit.Link("##now-recap", a, recap, 12)) Dalamud.Utility.Util.OpenLink(SiteLink.RecapUrl);
+        Icons.Draw(Kit.Dl, Icon.ArrowRight, a + new Vector2(Txt.Measure(recap, Face.SansSemibold, 12).X + S(4), S(2)), S(12), Palette.Ribbon);
         Kit.Reserve(a, Kit.Width, S(18));
     }
 
@@ -280,13 +287,18 @@ public sealed partial class MainWindow
             var hidden = spoilers == Spoilers.Strict && !shownDuties.Contains(a.Duty);
             var row = Kit.At;
             var x = row.X + Txt.Line(Kit.Dl, row, "It's ", Face.Sans, 12, Palette.Muted, 22);
+            var label = "a " + Kind(a.Type);
             if (hidden)
             {
-                var label = "a " + Kind(a.Type);
                 if (Ink.Redaction("##now-ahead-show", new Vector2(x, row.Y + S(1)), label))
                 {
                     var duty = a.Duty;
-                    Later(() => shownDuties.Add(duty));
+                    Later(() =>
+                    {
+                        shownDuties.Add(duty);
+                        // The ink lifts left to right (650ms, the ink curve): the word is covered or whole, never faded.
+                        redactionLift.Start(Ink.Now);
+                    });
                 }
                 x += Ink.RedactionWidth(label);
                 Txt.Line(Kit.Dl, new Vector2(x, row.Y), ".", Face.Sans, 12, Palette.Muted, 22);
@@ -296,6 +308,8 @@ public sealed partial class MainWindow
             {
                 var h = Lines.Draw(Kit.Dl, new Vector2(x, row.Y + S(2)), Kit.Width - (x - row.X), $"{a.Duty}, Lv {a.Level} ({a.Type.ToLowerInvariant()}).",
                     Face.SansMedium, 12, Palette.Ink, 18);
+                if (spoilers == Spoilers.Strict && redactionLift.Started && !redactionLift.Done(Ink.Now, Ink.Still))
+                    Ink.Redaction("##now-ahead-show", new Vector2(x, row.Y + S(1)), label, 0, redactionLift.Value(Ink.Now, Ink.Still));
                 Kit.Reserve(row, Kit.Width, MathF.Max(S(22), h + S(4)));
             }
             Parts.Quiet("Bring a party, or the Duty Finder.");
@@ -305,7 +319,7 @@ public sealed partial class MainWindow
         {
             Kit.Gap(10);
             var line = Kit.At;
-            Kit.Divider(line.X, line.X + Kit.Width, line.Y);
+            Kit.Dl.AddLine(new Vector2(line.X, line.Y + 0.5f), new Vector2(line.X + Kit.Width, line.Y + 0.5f), Palette.U32(Palette.Line), 1f);
             Kit.Reserve(line, Kit.Width, 1);
             Kit.Gap(10);
             var at = Kit.At;
@@ -360,7 +374,8 @@ public sealed partial class MainWindow
             Txt.Line(dl, kp + new Vector2(S(6), 0), key, Face.Mono, 11, Palette.Muted, 20);
         }
         var entered = Kit.Field("##now-note", new Vector2(fieldX, at.Y + (h - S(36)) / 2), MathF.Max(S(60), fieldR - fieldX), ref quickNote,
-            "A line for tonight's entry…", null, 2000, ImGuiInputTextFlags.EnterReturnsTrue, Face.ReadItalic, 14, Palette.QuillInk, true);
+            "A line for tonight's entry…", null, 2000, ImGuiInputTextFlags.EnterReturnsTrue, Face.ReadItalic, 14, Palette.QuillInk, true, 36, null,
+            Palette.Rgba(243, 227, 194, 0.45f));
         Kit.Reserve(at, w, h);
         if ((save || entered) && !empty)
         {
@@ -400,7 +415,7 @@ public sealed partial class MainWindow
     /// <summary>The link, for the first time: a token from the site.</summary>
     private void DrawLinkBox()
     {
-        Kit.BeginPanel("##now-link", 18, 20, 18, Palette.AccentWash, Palette.RibbonLine, Palette.RadiusXl);
+        Kit.BeginPanel("##now-link", 18, 20, 18, Palette.AccentWash, Palette.RibbonLine, Palette.RadiusMd);
         var at = Kit.At;
         var w = Kit.Width;
         Kit.IconWell(at, S(36), Icon.Link);

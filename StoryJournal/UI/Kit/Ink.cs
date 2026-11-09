@@ -23,8 +23,11 @@ public static class Ink
     /// <summary>Calm: the plugin's switch or the system's reduced motion; everything is simply there.</summary>
     public static bool Calm { get; set; }
 
-    /// <summary>Skip animations now (calm, or reduced motion asked for).</summary>
-    public static bool Still => Calm || ReducedMotion;
+    /// <summary>The game's busy (combat, a duty, a cutscene, a loading screen): cards wait and nothing moves (set each frame).</summary>
+    public static bool Busy { get; set; }
+
+    /// <summary>Skip animations now (calm, reduced motion asked for, or the game busy).</summary>
+    public static bool Still => Calm || Busy || ReducedMotion;
 
     // ---------------------------------------------------------------------------------------------
     // The ribbon.
@@ -38,17 +41,40 @@ public static class Ink
     {
         if (unrolled <= 0 || w <= 0 || h <= 0) return;
         var p = Shapes.Ribbon(top, w, h, unrolled, notch);
-        var fill = Palette.U32(color ?? Palette.Ribbon);
         var notchY = p[3].Y;
-        if (notchY > top.Y) dl.AddRectFilled(top, new Vector2(top.X + w, notchY), fill);
-        if (p[4].Y > notchY)
+        if (color is { } flat)
         {
-            dl.AddTriangleFilled(new Vector2(top.X, notchY), p[3], p[4], fill);
-            dl.AddTriangleFilled(p[3], new Vector2(top.X + w, notchY), p[2], fill);
+            // One colour (the tracker's deep red, white words on it).
+            var fill = Palette.U32(flat);
+            if (notchY > top.Y) dl.AddRectFilled(top, new Vector2(top.X + w, notchY), fill);
+            if (p[4].Y > notchY)
+            {
+                dl.AddTriangleFilled(new Vector2(top.X, notchY), p[3], p[4], fill);
+                dl.AddTriangleFilled(p[3], new Vector2(top.X + w, notchY), p[2], fill);
+            }
         }
-        // The deeper red where it's folded over the edge.
+        else
+        {
+            // The bookmark: the deep red at the top to the ribbon's red 60% down (the site's .bm), the foot in the ribbon's red.
+            var deep = Palette.U32(Palette.RibbonDeep);
+            var red = Palette.U32(Palette.Ribbon);
+            var full = top.Y + h * 0.6f;
+            var gradEnd = MathF.Min(notchY, full);
+            if (gradEnd > top.Y)
+            {
+                var mid = Palette.U32(Palette.Mix(Palette.RibbonDeep, Palette.Ribbon, Math.Clamp((gradEnd - top.Y) / (full - top.Y), 0, 1)));
+                dl.AddRectFilledMultiColor(top, new Vector2(top.X + w, gradEnd), deep, deep, mid, mid);
+            }
+            if (notchY > gradEnd) dl.AddRectFilled(new Vector2(top.X, gradEnd), new Vector2(top.X + w, notchY), red);
+            if (p[4].Y > notchY)
+            {
+                dl.AddTriangleFilled(new Vector2(top.X, notchY), p[3], p[4], red);
+                dl.AddTriangleFilled(p[3], new Vector2(top.X + w, notchY), p[2], red);
+            }
+        }
+        // The darker band where it's folded over the edge (a second rect, as the mock-up's shape).
         var band = MathF.Min(p[4].Y - top.Y, MathF.Max(S(2), h * 0.12f));
-        dl.AddRectFilled(top, new Vector2(top.X + w, top.Y + band), Palette.U32(Palette.RibbonDeep));
+        dl.AddRectFilled(top, new Vector2(top.X + w, top.Y + band), Palette.U32(Palette.RibbonDark));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -79,14 +105,15 @@ public static class Ink
         var pts = new Vector2[unit.Length];
         for (var i = 0; i < unit.Length; i++) pts[i] = centre + unit[i];
         // A soft ring of deeper red round it (the site's 3px glow), then the wax.
-        dl.AddCircleFilled(centre, r * 1.1f, Palette.U32(Palette.WithAlpha(Palette.RibbonDeep, 0.35f)), 32);
+        dl.AddCircleFilled(centre, r * 1.1f, Palette.U32(Palette.WithAlpha(Palette.RibbonDeep, broken ? 0.25f : 0.35f)), 32);
         unsafe
         {
             fixed (Vector2* p = pts)
-                dl.AddConvexPolyFilled(p, pts.Length, Palette.U32(Palette.WaxDark));
+                dl.AddConvexPolyFilled(p, pts.Length, Palette.U32(broken ? Palette.Hex(0x6b0d1f) : Palette.WaxDark));
         }
-        dl.AddCircleFilled(centre, r * 0.86f, Palette.U32(Palette.WaxMid), 32);
-        dl.AddCircleFilled(centre, r * 0.66f, Palette.U32(Palette.WaxLight), 32);
+        // Opened, the wax is a little duller (the site's broken seal: #c53049 / #93162e / #6b0d1f).
+        dl.AddCircleFilled(centre, r * 0.86f, Palette.U32(broken ? Palette.Hex(0x93162e) : Palette.WaxMid), 32);
+        dl.AddCircleFilled(centre, r * 0.66f, Palette.U32(broken ? Palette.Hex(0xc53049) : Palette.WaxLight), 32);
         dl.AddCircle(centre, r * 0.7f, Palette.U32(Palette.Rgba(255, 220, 226, 0.3f)), 32, MathF.Max(1f, r * 0.03f));
         dl.AddCircleFilled(centre + new Vector2(-r * 0.32f, -r * 0.38f), r * 0.2f, Palette.U32(Palette.Rgba(255, 190, 200, 0.35f)), 16);
         if (mark is { Length: > 0 })
@@ -147,7 +174,7 @@ public static class Ink
         else
         {
             var r = S(6) * scale;
-            dl.AddCircleFilled(centre, r, Palette.U32(Palette.Leaf), 20);
+            dl.AddCircleFilled(centre, r, Palette.U32(Palette.InkGround), 20);
             dl.AddCircle(centre, r - S(1), Palette.U32(Palette.Ribbon), 20, S(2));
         }
     }
@@ -168,9 +195,9 @@ public static class Ink
     }
 
     /// <summary>The stamp's width for its words.</summary>
-    public static float StampWidth(string caps) => Txt.SpacedWidth(caps.ToUpperInvariant(), Face.SansSemibold, 10, 0.1f) + S(8) * 2;
+    public static float StampWidth(string caps) => Txt.SpacedWidth(caps.ToUpperInvariant(), Face.SansSemibold, 11, 0.1f) + S(8) * 2;
 
-    /// <summary>A stamp: its words in spaced capitals in a 1.5px box (the site's is pressed a little askew; ImGui draws it straight).</summary>
+    /// <summary>A stamp: its words in spaced capitals (Geist 600, 11px, +0.1em) in a 1.5px box (the site's is pressed a little askew, rotated −1.5°; ImGui can't turn text, so it's straight).</summary>
     public static float Stamp(ImDrawListPtr dl, Vector2 pos, string caps, StampTone tone = StampTone.Ribbon, float scale = 1f, float alpha = 1f)
     {
         var text = caps.ToUpperInvariant();
@@ -196,22 +223,53 @@ public static class Ink
         var half = new Vector2(w, h) / 2 * scale;
         dl.AddRect(centre - half, centre + half, Palette.U32(edge), S(4), ImDrawFlags.None, S(1.5f));
         if (scale > 0.98f && scale < 1.02f)
-            Txt.Spaced(dl, pos + new Vector2(S(8), (h - Txt.Natural(Face.SansSemibold, 10)) / 2), text, Face.SansSemibold, 10, color, 0.1f);
+            Txt.Spaced(dl, pos + new Vector2(S(8), (h - Txt.Natural(Face.SansSemibold, 11)) / 2), text, Face.SansSemibold, 11, color, 0.1f);
         Palette.Opacity = old;
         return w;
     }
 
-    /// <summary>A kicker: small capitals, tracked out (11px Geist 600, +0.14em), as the site's above every heading. Returns its width.</summary>
-    public static float Kicker(ImDrawListPtr dl, Vector2 pos, string caps, Vector4? color = null, int px = 11) =>
-        Txt.Spaced(dl, pos, caps.ToUpperInvariant(), Face.SansSemibold, px, color ?? Palette.Muted, 0.14f);
+    /// <summary>
+    /// A kicker: small capitals, tracked out (10px Geist 600, +0.14em, the plugin's labels), as the site's above every heading; each
+    /// " · " in it is the site's separator, a 3px dot at 60% with 8px either side. Returns its width.
+    /// </summary>
+    public static float Kicker(ImDrawListPtr dl, Vector2 pos, string caps, Vector4? color = null, int px = 10) => KickerDraw(dl, pos, caps, color ?? Palette.Muted, px, true);
 
-    public static float KickerWidth(string caps, int px = 11) => Txt.SpacedWidth(caps.ToUpperInvariant(), Face.SansSemibold, px, 0.14f);
+    public static float KickerWidth(string caps, int px = 10) => KickerDraw(default, Vector2.Zero, caps, Vector4.Zero, px, false);
+
+    private static float KickerDraw(ImDrawListPtr dl, Vector2 pos, string caps, Vector4 color, int px, bool draw)
+    {
+        var text = caps.ToUpperInvariant();
+        var x = pos.X;
+        var start = 0;
+        var gap = S(8);
+        var dotY = pos.Y + Txt.Natural(Face.SansSemibold, px) / 2;
+        while (true)
+        {
+            var sep = text.IndexOf(" · ", start, StringComparison.Ordinal);
+            var part = sep < 0 ? text[start..] : text[start..sep];
+            // The letter-spacing after a part's last letter is the browser's too, before the gap.
+            x += Txt.Spaced(dl, new Vector2(x, pos.Y), part, Face.SansSemibold, px, color, 0.14f, draw);
+            if (sep < 0) break;
+            x += gap;
+            if (draw) dl.AddCircleFilled(new Vector2(x + S(1.5f), dotY), S(1.5f), Palette.U32(Palette.WithAlpha(color, color.W * 0.6f)), 8);
+            x += S(3) + gap;
+            start = sep + 3;
+        }
+        return x - pos.X;
+    }
+
+    /// <summary>A chapter's numeral as the site sets it: lower-case roman in Fraunces, tracked +0.04em. Returns its width.</summary>
+    public static float Roman(ImDrawListPtr dl, Vector2 lineTop, string roman, int px, Vector4 color, float lineCss)
+    {
+        var top = lineTop + new Vector2(0, (S(lineCss) - Txt.Natural(Face.Display, px)) / 2);
+        return Txt.Spaced(dl, top, roman, Face.Display, px, color, 0.04f);
+    }
 
     /// <summary>A kicker on its own line across the box.</summary>
     public static void KickerRow(string caps, Vector4? color = null, float lineCss = 16)
     {
         var at = Kit.At;
-        Kicker(Kit.Dl, at + new Vector2(0, (S(lineCss) - Txt.Natural(Face.SansSemibold, 11)) / 2), caps, color);
+        Kicker(Kit.Dl, at + new Vector2(0, (S(lineCss) - Txt.Natural(Face.SansSemibold, 10)) / 2), caps, color);
         Kit.Reserve(at, Kit.Width, S(lineCss));
     }
 
@@ -252,6 +310,9 @@ public static class Ink
     // ---------------------------------------------------------------------------------------------
     // A paragraph with a drop cap.
 
+    /// <summary>The drop cap's size (CSS px): loaded on its own, the one size that big.</summary>
+    public const int DropCapPx = 48;
+
     /// <summary>
     /// Story words with a drop cap: the first letter in Fraunces, ribbon red, two lines tall; the first two lines
     /// set beside it, the rest across. Returns the height drawn.
@@ -262,11 +323,13 @@ public static class Ink
         if (text.Length == 0) return 0;
         var cap = text[..1];
         var rest = text[1..];
-        var capPx = 28;
+        // The site's 3.6em, set into two lines (Fraunces 600, ribbon red, its top on the first line's cap height).
+        var capPx = DropCapPx;
         var capSize = Txt.Measure(cap, Face.Display, capPx);
         var line = S(lineCss);
-        Txt.Draw(dl, pos + new Vector2(0, S(2)), cap, Face.Display, capPx, Palette.Ribbon);
-        var indent = capSize.X + S(6);
+        var baseline2 = pos.Y + line + (line - Txt.Natural(face, px)) / 2 + Txt.Ascent(face, px);
+        Txt.Draw(dl, new Vector2(pos.X, baseline2 - Txt.Ascent(Face.Display, capPx)), cap, Face.Display, capPx, Palette.Ribbon);
+        var indent = capSize.X + S(px * 0.12f);
         var words = rest.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var y = pos.Y;
         var i = 0;

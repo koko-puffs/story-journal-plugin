@@ -24,8 +24,11 @@ public enum ToastKind
     /// <summary>A photo taken: its tile is the camera.</summary>
     Photo,
 
-    /// <summary>A theory sealed or answered: its tile is the wax seal.</summary>
+    /// <summary>A theory sealed: its tile is the wax seal.</summary>
     Seal,
+
+    /// <summary>A theory the story's answered, or you've settled: the seal cracked.</summary>
+    Opened,
 }
 
 /// <summary>The Welcome back card's contents, made once when it opens.</summary>

@@ -189,4 +189,20 @@ public class TheoryAnswerTests
         Assert.Equal("Partly right.", TheoryAnswers.Toast("partly"));
         Assert.Equal("Sealed again.", TheoryAnswers.Toast("sealed"));
     }
+
+    [Fact]
+    public void TheStoryAnsweringATheoryIsToldOnceAndOnlyAsItHappens()
+    {
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var none = new System.Collections.Generic.HashSet<Guid>();
+        // The first look (at login): what's due already isn't news.
+        Assert.Empty(TheoryAnswers.JustAnswered(-1, 120, new[] { a }, none));
+        // A quest finished brings b due: told; a was due before: not again.
+        Assert.Equal(new[] { b }, TheoryAnswers.JustAnswered(120, 121, new[] { a, b }, new System.Collections.Generic.HashSet<Guid> { a }));
+        // The reading didn't move (the site's answer came, a theory settled): nothing told.
+        Assert.Empty(TheoryAnswers.JustAnswered(121, 121, new[] { a, b }, none));
+        // Twice in the list: once.
+        Assert.Equal(new[] { b }, TheoryAnswers.JustAnswered(121, 122, new[] { b, b }, none));
+    }
 }

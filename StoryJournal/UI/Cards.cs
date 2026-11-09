@@ -30,12 +30,15 @@ public abstract class MarginNote : CardWindow
 
     protected override float Pad => 16;
 
-    /// <summary>The margin rule down the card's left, inside its edge.</summary>
+    /// <summary>The words start 22px in, right of the rule.</summary>
+    protected override float PadLeft => 22;
+
+    /// <summary>The margin rule down the card's left, inside its edge: the ribbon's red, 2px, 11px in, 14px from top and foot.</summary>
     protected static void MarginRule()
     {
         var win = ImGui.GetWindowPos();
         var h = ImGui.GetWindowHeight();
-        Ink.Rule(Kit.Dl, win.X + S(10), win.Y + S(14), win.Y + h - S(14));
+        Kit.Dl.AddRectFilled(new Vector2(win.X + S(11), win.Y + S(14)), new Vector2(win.X + S(13), win.Y + h - S(14)), Palette.U32(Palette.Ribbon), S(1));
     }
 }
 
@@ -55,7 +58,7 @@ public sealed class ArrivalWindow : MarginNote
 
     public Action<string>? OpenCodex { get; set; }
 
-    protected override float CardWidth => 300;
+    protected override float CardWidth => 290;
 
     protected override (Vector2 At, bool Centre) FirstPlace => (new Vector2(0.03f, 0.24f), false);
 
@@ -78,12 +81,13 @@ public sealed class ArrivalWindow : MarginNote
             Txt.Line(Kit.Dl, a, line, Face.Display, 19, Palette.Ink, 25);
             Kit.Reserve(a, Kit.Width, S(25));
         }
-        Kit.Gap(4);
+        Kit.Gap(2);
         Lines.Para(c.Whisper, Palette.Body, 13, 20, Face.Read);
         Kit.Gap(10);
         var at = Kit.At;
         var w = Kit.Width;
-        if (Kit.Link("##arrival-more", at, "More in the Codex", 12))
+        var bh = S(26);
+        if (Kit.Link("##arrival-more", at + new Vector2(0, (bh - Txt.Natural(Face.SansSemibold, 12)) / 2), "More in the Codex", 12))
         {
             var place = c.Place;
             Later(() =>
@@ -92,11 +96,11 @@ public sealed class ArrivalWindow : MarginNote
                 journal.Arrival = null;
             });
         }
+        // "Fewer of these": a small ghost button, at the right.
         var fewer = "Fewer of these";
-        var fw = Txt.Measure(fewer, Face.Sans, 12).X;
-        var (clicked, hovered, _) = Kit.Hit("##arrival-fewer", new Vector2(at.X + w - fw, at.Y), new Vector2(fw, S(17)));
-        Txt.Line(Kit.Dl, new Vector2(at.X + w - fw, at.Y), fewer, Face.Sans, 12, hovered ? Palette.Ink : Palette.Muted, 17);
-        Kit.Reserve(at, w, S(17));
+        var fw = Kit.ButtonWidth(fewer, BtnSize.Tiny, null, Btn.Quiet);
+        var clicked = Kit.Button("##arrival-fewer", new Vector2(at.X + w - fw + S(8), at.Y), fewer, Btn.Quiet, BtnSize.Tiny);
+        Kit.Reserve(at, w, bh);
         if (clicked)
         {
             Later(() =>
@@ -140,6 +144,7 @@ public sealed class WhoWindow : MarginNote
     {
         if (card is not { } who) return;
         MarginRule();
+        Tether(who.Name);
         var top = Kit.At;
         if (Kit.IconButton("##who-x", new Vector2(top.X + Kit.Width - S(20), top.Y - S(4)), Icon.X, "Close", 20, Btn.Quiet)) Later(() => journal.Who = null);
         Ink.KickerRow("Someone you've met", Palette.Ribbon);
@@ -153,16 +158,19 @@ public sealed class WhoWindow : MarginNote
         Kit.Gap(4);
         var here = journal.Story.Now?.Progress.Current?.Place is { Length: > 0 } p && string.Equals(p, who.Met.Place, StringComparison.OrdinalIgnoreCase);
         var s = Kit.At;
-        Ink.Stamp(Kit.Dl, s, $"Met · {Ui.Ago(who.Met.At)}" + (here ? " · here" : who.Met.Place.Length > 0 ? $" · {who.Met.Place}" : string.Empty));
+        var stamp = $"Met · {Ui.Ago(who.Met.At)}" + (here ? " · here" : who.Met.Place.Length > 0 ? $" · {who.Met.Place}" : string.Empty);
+        // A long place doesn't fit the card's stamp: when, then.
+        if (Ink.StampWidth(stamp) > Kit.Width) stamp = $"Met · {Ui.Ago(who.Met.At)}";
+        Ink.Stamp(Kit.Dl, s, stamp);
         Kit.Reserve(s, Kit.Width, S(20));
         Kit.Gap(8);
-        if (who.Layers.Count > 0) Lines.Para(who.Layers[0].Text, Palette.Body, 13, 20, Face.Read);
+        if (who.Layers.Count > 0) Lines.Para(who.Layers[0].Text, Palette.Body, 13, 20.15f, Face.Read);
         else if (who.Lines > 0) Parts.Quiet(who.Lines == 1 ? "You saved a line of theirs." : $"You saved {who.Lines} lines of theirs.");
         if (who.Notes.Count > 0)
         {
             Kit.Gap(8);
             var l = Kit.At;
-            Kit.Divider(l.X, l.X + Kit.Width, l.Y);
+            Kit.Dl.AddLine(new Vector2(l.X, l.Y + 0.5f), new Vector2(l.X + Kit.Width, l.Y + 0.5f), Palette.U32(Palette.Line), 1f);
             Kit.Reserve(l, Kit.Width, 1);
             Kit.Gap(8);
             Ink.KickerRow("You wrote", Palette.Quill);
@@ -185,6 +193,21 @@ public sealed class WhoWindow : MarginNote
             Kit.Reserve(at, Kit.Width, S(17));
         }
     }
+
+    /// <summary>
+    /// The red tether from whoever you've targeted to their card (2px, the ribbon's red), under every window, when
+    /// they're on the screen to the card's left or right.
+    /// </summary>
+    private static void Tether(string name)
+    {
+        if (Game.InGame.TargetOnScreen(name) is not { } from) return;
+        var win = ImGui.GetWindowPos();
+        var size = ImGui.GetWindowSize();
+        var left = from.X < win.X;
+        if (!left && from.X < win.X + size.X) return;
+        var to = new Vector2(left ? win.X : win.X + size.X, Math.Clamp(from.Y, win.Y + S(14), win.Y + size.Y - S(14)));
+        ImGui.GetBackgroundDrawList().AddLine(from, to, Palette.U32(Palette.Ribbon), S(2));
+    }
 }
 
 /// <summary>
@@ -194,7 +217,7 @@ public sealed class WhoWindow : MarginNote
 /// </summary>
 public sealed class ToastWindow : Window, IDisposable
 {
-    private const float Width = 300;
+    private const float Width = 250;
 
     private readonly Journal journal;
     private readonly Fonts fonts;
@@ -259,58 +282,64 @@ public sealed class ToastWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// A toast: what was kept, top right, a few seconds. Its tile is the motif of what it kept: a quote, a camera,
-    /// a seal. It slides in 14px from the right as it fades in, and fades as it goes.
+    /// A toast, as the mock-up's: what was kept, top right, a few seconds; near-black (94%), the strong edge, radius 10,
+    /// its title in Geist 600 12px and a small line under it. Its tile is the motif of what it kept: a quote, a camera,
+    /// a seal (cracked once the story's answered it). It slides in 14px from the right as it fades in (420ms, settle),
+    /// and goes quicker (200ms).
     /// </summary>
     private static void DrawToast(Toast t, DateTime now)
     {
         var age = (now - t.At).TotalSeconds;
-        var left = 6 - age;
+        var left = Journal.ToastSeconds - age;
         var into = Ink.Still ? 1f : Ease.Settle((float)Math.Clamp(age / Durations.Turn, 0, 1));
         var old = Palette.Opacity;
-        Palette.Opacity = Ink.Still ? 1 : (float)Math.Min(into, Math.Clamp(left / 0.4, 0, 1));
+        Palette.Opacity = Ink.Still ? 1 : (float)Math.Min(into, Math.Clamp(left / Durations.Leave, 0, 1));
         var at = Kit.At + new Vector2(S(14) * (1 - into), 0);
         var w = Kit.Width;
-        var tile = S(32);
-        var inner = w - S(12) * 2 - tile - S(12);
+        var tile = S(28);
+        var padX = S(10);
+        var padY = S(8);
+        var inner = w - padX * 2 - tile - S(9);
         var bodyColor = t.Kind is ToastKind.Quill ? Palette.QuillInk : Palette.Body;
         var bodyFace = t.Kind is ToastKind.Quill or ToastKind.Seal ? Face.ReadItalic : Face.Sans;
-        var h = MathF.Max(tile + S(12) * 2, S(12) * 2 + Txt.Natural(Face.SansSemibold, 13)
-                + (t.Body != null ? S(2) + Lines.Height(t.Body, inner, bodyFace, 12, 17) : 0)
-                + (t.Note != null ? S(2) + Lines.Height(t.Note, inner, Face.Sans, 11, 15) : 0));
+        var wordsH = Txt.Natural(Face.SansSemibold, 12)
+                     + (t.Body != null ? S(1) + Lines.Height(t.Body, inner, bodyFace, 12, 16) : 0)
+                     + (t.Note != null ? S(1) + Lines.Height(t.Note, inner, Face.SansMedium, 11, 15) : 0);
+        var h = MathF.Max(tile, wordsH) + padY * 2;
         var dl = Kit.Dl;
-        dl.AddRectFilled(at, at + new Vector2(w, h), Palette.U32(Palette.WithAlpha(Palette.LeafRaised, 0.97f)), S(12));
-        dl.AddRect(at, at + new Vector2(w, h), Palette.U32(t.Kind == ToastKind.Bad ? Palette.DangerEdge : Palette.LineStrong), S(12));
-        var tp = at + new Vector2(S(12), S(12));
+        dl.AddRectFilled(at, at + new Vector2(w, h), Palette.U32(Palette.WithAlpha(Palette.Hex(0x0d0b0a), 0.94f)), S(10));
+        dl.AddRect(at + new Vector2(0.5f), at + new Vector2(w, h) - new Vector2(0.5f), Palette.U32(t.Kind == ToastKind.Bad ? Palette.DangerEdge : Palette.LineStrong), S(10));
+        var tp = at + new Vector2(padX, (h - tile) / 2);
         switch (t.Kind)
         {
-            case ToastKind.Seal:
-                Ink.Seal(dl, tp + new Vector2(tile / 2), tile / 2 - S(2), Shapes.Seed(t.Title + t.At.Ticks), false, null, Icon.Feather);
+            case ToastKind.Seal or ToastKind.Opened:
+                Ink.Seal(dl, tp + new Vector2(tile / 2), S(13), Shapes.Seed(t.Title + t.At.Ticks), t.Kind == ToastKind.Opened, null,
+                    t.Kind == ToastKind.Opened ? Icon.Check : Icon.Feather, 1f, 1f, Palette.Hex(0x0d0b0a));
                 break;
             default:
             {
                 var (icon, ink, fill, edge) = t.Kind switch
                 {
                     ToastKind.Quill => (Icon.Quote, Palette.Quill, Palette.QuillSoft, Palette.QuillLine),
-                    ToastKind.Photo => (Icon.Camera, Palette.Body, Palette.Hover, Palette.LineStrong),
+                    ToastKind.Photo => (Icon.Camera, Palette.Muted, Palette.LeafRaised, Palette.Line),
                     ToastKind.Good => (Icon.Check, Palette.Good, Palette.SuccessWash, Palette.SuccessEdge),
                     ToastKind.Bad => (Icon.AlertTriangle, Palette.Danger, Palette.DangerWash, Palette.DangerEdge),
                     _ => (Icon.BookOpen, Palette.Ribbon, Palette.RibbonSoft, Palette.RibbonLine),
                 };
-                dl.AddRectFilled(tp, tp + new Vector2(tile), Palette.U32(fill), S(9));
-                dl.AddRect(tp, tp + new Vector2(tile), Palette.U32(edge), S(9));
-                Icons.Draw(dl, icon, tp + new Vector2((tile - S(16)) / 2), S(16), ink);
+                dl.AddRectFilled(tp, tp + new Vector2(tile), Palette.U32(Palette.Over(fill, Palette.Hex(0x0d0b0a))), S(7));
+                dl.AddRect(tp + new Vector2(0.5f), tp + new Vector2(tile) - new Vector2(0.5f), Palette.U32(edge), S(7));
+                Icons.Draw(dl, icon, tp + new Vector2((tile - S(14)) / 2), S(14), ink);
                 break;
             }
         }
-        var x = tp.X + tile + S(12);
-        var y = at.Y + S(12);
-        Txt.Line(dl, new Vector2(x, y), Txt.Fit(t.Title, Face.SansSemibold, 13, inner), Face.SansSemibold, 13, Palette.Ink);
-        y += Txt.Natural(Face.SansSemibold, 13);
-        if (t.Body != null) y += S(2) + Lines.Draw(dl, new Vector2(x, y + S(2)), inner, t.Body, bodyFace, 12, bodyColor, 17);
-        if (t.Note != null) Lines.Draw(dl, new Vector2(x, y + S(2)), inner, t.Note, Face.Sans, 11, Palette.Muted, 15);
+        var x = tp.X + tile + S(9);
+        var y = at.Y + (h - wordsH) / 2;
+        Txt.Line(dl, new Vector2(x, y), Txt.Fit(t.Title, Face.SansSemibold, 12, inner), Face.SansSemibold, 12, Palette.Ink);
+        y += Txt.Natural(Face.SansSemibold, 12);
+        if (t.Body != null) y += S(1) + Lines.Draw(dl, new Vector2(x, y + S(1)), inner, t.Body, bodyFace, 12, bodyColor, 16);
+        if (t.Note != null) Lines.Draw(dl, new Vector2(x, y + S(1)), inner, t.Note, Face.SansMedium, 11, Palette.Muted, 15);
         Kit.Reserve(Kit.At, w, h);
-        Kit.Gap(8);
+        Kit.Gap(6);
         Palette.Opacity = old;
     }
 
@@ -339,9 +368,14 @@ public sealed class QuickNoteWindow : CardWindow
         RespectCloseHotkey = true;
     }
 
-    protected override float CardWidth => 380;
+    protected override float CardWidth => 370;
 
-    protected override float Pad => 18;
+    protected override float Pad => 16;
+
+    /// <summary>An index card: a warmer paper (#1b1713) with the quill's edge.</summary>
+    protected override Vector4 Fill => Palette.Hex(0x1b1713);
+
+    protected override Vector4 Edge => Palette.QuillLine;
 
     protected override (Vector2 At, bool Centre) FirstPlace => (new Vector2(0.5f, 0.3f), true);
 
@@ -360,46 +394,63 @@ public sealed class QuickNoteWindow : CardWindow
         var winW = ImGui.GetWindowWidth();
         var winH = ImGui.GetWindowHeight();
         var dl = Kit.Dl;
-        // The index card: ruled lines every 26px, the red margin 38px in.
-        for (var y = win.Y + S(52); y < win.Y + winH - S(8); y += S(26))
-            dl.AddLine(new Vector2(win.X + 1, y), new Vector2(win.X + winW - 1, y), Palette.U32(Palette.Rgba(255, 240, 225, 0.05f)), 1f);
-        dl.AddLine(new Vector2(win.X + S(38), win.Y + 1), new Vector2(win.X + S(38), win.Y + winH - 1), Palette.U32(Palette.RibbonLine), 1f);
-
         var at = Kit.At;
         var w = Kit.Width;
-        Icons.Draw(dl, Icon.Feather, at + new Vector2(S(24), S(1)), S(13), Palette.Quill);
-        Ink.Kicker(dl, at + new Vector2(S(42), S(1)), "A quick note", Palette.Quill);
-        if (Kit.IconButton("##note-x", new Vector2(at.X + w - S(22), at.Y - S(4)), Icon.X, "Close", 22, Btn.Quiet)) Later(Clear);
+        // Your words' lines: the field's own line height (ImGui can't space a field's lines to 26px, so the rules follow
+        // the words instead, each under a line of them), ruled across the whole card in the quill's faint gold.
+        var line = Txt.Natural(Face.ReadItalic, 15);
+        var fieldTop = at.Y + S(20) + S(12);
+        var first = fieldTop + S(2) + line;
+        var y0 = first - MathF.Floor((first - (win.Y + S(40))) / line) * line;
+        dl.PushClipRect(win, win + new Vector2(winW, winH), false);
+        for (var y = y0; y < win.Y + winH - S(6); y += line)
+            dl.AddLine(new Vector2(win.X + 1, y), new Vector2(win.X + winW - 1, y), Palette.U32(Palette.Rgba(233, 196, 127, 0.1f)), 1f);
+        // The red margin, 38px in.
+        dl.AddLine(new Vector2(win.X + S(38), win.Y + 1), new Vector2(win.X + S(38), win.Y + winH - 1), Palette.U32(Palette.RibbonLine), 1f);
+        dl.PopClipRect();
+
+        Icons.Draw(dl, Icon.Feather, at + new Vector2(S(30), S(3)), S(14), Palette.Quill);
+        Ink.Kicker(dl, at + new Vector2(S(30 + 14 + 8), S(4)), "A quick note", Palette.Quill, 10);
+        if (Kit.IconButton("##note-x", new Vector2(win.X + winW - S(12) - S(22), win.Y + S(9)), Icon.X, "Close", 22, Btn.Quiet)) Later(Clear);
         Kit.Reserve(at, w, S(20));
-        Kit.Gap(10);
+        Kit.Gap(12);
         if (focus)
         {
             ImGui.SetKeyboardFocusHere();
             focus = false;
         }
-        // Your words, on the lines, in candle gold.
+        // Your words, on the lines, in candle gold (Literata's italic, 15px).
         var f = Kit.At;
         var fx = f.X + S(30);
         var fw = w - S(30);
+        var fh = line * 4 + S(4);
         using (Txt.Fonts.Push(Face.ReadItalic, 15))
         {
             ImGui.PushStyleColor(ImGuiCol.Text, Palette.QuillInk);
             ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
             ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(0, S(2)));
             ImGui.SetCursorScreenPos(new Vector2(fx, f.Y));
-            ImGui.InputTextMultiline("##note-text", ref text, 2000, new Vector2(fw, S(26) * 3), ImGuiInputTextFlags.None);
+            ImGui.InputTextMultiline("##note-text", ref text, 2000, new Vector2(fw, fh), ImGuiInputTextFlags.None);
             ImGui.PopStyleVar();
             ImGui.PopStyleColor(2);
         }
         if (text.Length == 0)
-            Txt.Line(dl, new Vector2(fx, f.Y + S(2)), "What's on your mind about the story…", Face.ReadItalic, 15, Palette.Faint, 22);
-        Kit.Reserve(f, w, S(26) * 3);
-        Kit.Gap(10);
+            Txt.Draw(dl, new Vector2(fx, f.Y + S(2)), "What's on your mind about the story…", Face.ReadItalic, 15, Palette.Rgba(243, 227, 194, 0.45f));
+        Kit.Reserve(f, w, fh);
+        Kit.Gap(8);
+
+        // About: who you're looking at, as a chip you can type over.
         var about = Kit.At;
-        Icons.Draw(dl, Icon.Users, about + new Vector2(S(30), S(5)), S(13), Palette.Muted);
-        Txt.Line(dl, about + new Vector2(S(48), 0), "About", Face.Sans, 12, Palette.Muted, 24);
-        Kit.Field("##note-about", about + new Vector2(S(90), 0), w - S(90), ref subject, "no one in particular", null, 60, ImGuiInputTextFlags.None, Face.SansMedium, 12, Palette.Ink, false, 24);
-        Kit.Reserve(about, w, S(24));
+        var ch = S(21);
+        Icons.Draw(dl, Icon.Users, about + new Vector2(S(30), (ch - S(12)) / 2), S(12), Palette.Muted);
+        var lx = about.X + S(30 + 12 + 6);
+        lx += Txt.Line(dl, new Vector2(lx, about.Y), "About", Face.Sans, 11, Palette.Muted, ch / S(1)) + S(6);
+        var shown = subject.Length > 0 ? subject : "no one in particular";
+        var cw = MathF.Min(about.X + w - lx, Txt.Measure(shown, Face.SansSemibold, 11).X + S(10) * 2 + S(8));
+        dl.AddRectFilled(new Vector2(lx, about.Y), new Vector2(lx + cw, about.Y + ch), Palette.U32(Palette.LeafRaised), ch / 2);
+        dl.AddRect(new Vector2(lx, about.Y) + new Vector2(0.5f), new Vector2(lx + cw, about.Y + ch) - new Vector2(0.5f), Palette.U32(Palette.Line), ch / 2);
+        Kit.Field("##note-about", new Vector2(lx + S(10), about.Y), cw - S(10), ref subject, "no one in particular", null, 60, ImGuiInputTextFlags.None, Face.SansSemibold, 11, Palette.Body, true, 21);
+        Kit.Reserve(about, w, ch);
         Kit.Gap(12);
         var empty = text.Trim().Length == 0;
         Kit.PushBox(Kit.Left + S(30), w - S(30));

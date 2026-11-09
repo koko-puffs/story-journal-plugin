@@ -39,7 +39,7 @@ public enum Face
 /// <summary>
 /// The faces at the sizes the windows use, loaded through Dalamud's font atlas (so they follow
 /// Dalamud's global scale and rebuild with it): Geist 14–10 (400), 14/13/12 (500), 30–10 (600); Geist Mono
-/// 22/15/13/12/11 (every number); Fraunces SemiBold 28–13 and its italic (static instances at opsz 72, soft
+/// 22/15/13/12/11 (every number); Fraunces SemiBold 48 (the drop cap's), 28–13 and its italic (static instances at opsz 72, soft
 /// 60); Literata Regular 16–12 and its italic (opsz 14). All under the SIL Open Font License 1.1, unmodified,
 /// with their licences (Resources/Fonts).
 ///
@@ -63,7 +63,7 @@ public sealed class Fonts : IDisposable
         (Face.SansMedium, 14), (Face.SansMedium, 13), (Face.SansMedium, 12),
         (Face.SansSemibold, 30), (Face.SansSemibold, 22), (Face.SansSemibold, 18), (Face.SansSemibold, 16), (Face.SansSemibold, 15), (Face.SansSemibold, 14), (Face.SansSemibold, 13), (Face.SansSemibold, 12), (Face.SansSemibold, 11), (Face.SansSemibold, 10),
         (Face.Mono, 22), (Face.Mono, 15), (Face.Mono, 13), (Face.Mono, 12), (Face.Mono, 11),
-        (Face.Display, 28), (Face.Display, 22), (Face.Display, 19), (Face.Display, 17), (Face.Display, 15), (Face.Display, 13),
+        (Face.Display, Ink.DropCapPx), (Face.Display, 28), (Face.Display, 22), (Face.Display, 19), (Face.Display, 17), (Face.Display, 15), (Face.Display, 13),
         (Face.DisplayItalic, 22), (Face.DisplayItalic, 17), (Face.DisplayItalic, 15),
         (Face.Read, 16), (Face.Read, 15), (Face.Read, 14), (Face.Read, 13), (Face.Read, 12),
         (Face.ReadItalic, 15), (Face.ReadItalic, 14), (Face.ReadItalic, 13), (Face.ReadItalic, 12),
@@ -101,8 +101,8 @@ public sealed class Fonts : IDisposable
                 _ => GeistLine,
             };
             var dalamudFont = japanese && face is not Face.Mono;
-            // The mono only shows times and counts: it needs no other language's letters.
-            var handle = Make(atlas, file, px * line, dalamudFont, face is not Face.Mono);
+            // The mono only shows times and counts, and the drop cap one letter: they need no other language's letters.
+            var handle = Make(atlas, file, px * line, dalamudFont && px < Ink.DropCapPx, face is not Face.Mono && px < Ink.DropCapPx);
             // Rebuilt (Dalamud's font settings, the scale): what was measured with the old one is stale.
             // This can come from the font build's own thread, hence only a counter.
             handle.ImFontChanged += OnFontChanged;

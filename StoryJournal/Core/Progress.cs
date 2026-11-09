@@ -104,6 +104,7 @@ public sealed record Progress(
         foreach (var a in Ahead) ahead.Add(new JsonObject { ["questsAway"] = a.QuestsAway, ["level"] = a.Level, ["duty"] = a.Duty, ["type"] = a.Type });
         o["ahead"] = ahead;
         o["nextStop"] = NextStop is { } s ? new JsonObject { ["questsAway"] = s.QuestsAway, ["reason"] = s.Reason } : null;
+        if (PluginVersion is { Length: > 0 and <= 20 } v) o["plugin"] = v;
         return o;
     }
 
@@ -112,6 +113,9 @@ public sealed record Progress(
     /// of expansions not reached go (their names are null already), then the chapters altogether, then the
     /// current quest's earliest journal entries (the latest say where you are).
     /// </summary>
+    /// <summary>The plugin's own version ("0.2.0"), sent with the reading so the site can say which plugin said hello. Set once at load.</summary>
+    public static string? PluginVersion { get; set; }
+
     public JsonObject ToSite()
     {
         var p = this;

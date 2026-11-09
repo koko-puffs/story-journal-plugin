@@ -52,6 +52,21 @@ public static class TheoryAnswers
         _ => "Sealed again.",
     };
 
+    /// <summary>
+    /// The theories the story has just answered, to tell once (a toast with a cracked seal): those due now that weren't
+    /// at the last look, but only when the reading moved forward since (<paramref name="lastIndex"/> below
+    /// <paramref name="index"/>); at the first look (<paramref name="lastIndex"/> below 0, as at login) none, so nothing
+    /// already due is told again.
+    /// </summary>
+    public static List<Guid> JustAnswered(int lastIndex, int index, IEnumerable<Guid> dueNow, IReadOnlySet<Guid> dueBefore)
+    {
+        var told = new List<Guid>();
+        if (lastIndex < 0 || index <= lastIndex) return told;
+        foreach (var id in dueNow)
+            if (!dueBefore.Contains(id) && !told.Contains(id)) told.Add(id);
+        return told;
+    }
+
     /// <summary>The button's index for an answer, and back (−1 / null when it isn't one).</summary>
     public static string? At(int index) => index >= 0 && index < Settled.Count ? Settled[index] : null;
 

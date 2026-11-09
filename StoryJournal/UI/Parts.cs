@@ -159,34 +159,35 @@ internal static class Parts
     }
 
     /// <summary>
-    /// A setting's row (13px 16px inside, a hairline between): its name and a line under it, its control on
-    /// the right. Returns where the control goes (the row's room is already taken).
+    /// A setting's row, as the mock-up's: its name (Geist 600, 13px) and a line under it (11px, muted), its control on
+    /// the right, 9px above and below, a hairline between rows; flush with the box (<paramref name="inset"/> in from
+    /// each side inside a panel). Returns where the control goes (the row's room is already taken).
     /// </summary>
-    public static Vector2 SetRow(int index, string name, string? note, float controlW, float controlH, bool disabled = false)
+    public static Vector2 SetRow(int index, string name, string? note, float controlW, float controlH, bool disabled = false, float inset = 0)
     {
         var at = Kit.At;
         var w = Kit.Width;
         var dl = Kit.Dl;
         if (index > 0) dl.AddLine(new Vector2(at.X + 1, at.Y - 0.5f), new Vector2(at.X + w - 1, at.Y - 0.5f), Palette.U32(Palette.Line), 1f);
-        var x = at.X + S(16);
-        var wordsW = controlW <= 0 ? w - S(32) : w - S(32) - controlW - S(14);
-        var nameH = Txt.Natural(Face.SansMedium, 14);
-        var noteH = note != null ? Lines.Height(note, wordsW, Face.Sans, 12, 18) : 0;
-        var wordsH = nameH + (note != null ? S(2) + noteH : 0);
-        var h = S(13) * 2 + MathF.Max(wordsH, controlH);
+        var x = at.X + S(inset);
+        var wordsW = controlW <= 0 ? w - S(inset) * 2 : w - S(inset) * 2 - controlW - S(12);
+        var nameH = Txt.Natural(Face.SansSemibold, 13);
+        var noteH = note != null ? Lines.Height(note, wordsW, Face.Sans, 11, 16) : 0;
+        var wordsH = nameH + (note != null ? S(1) + noteH : 0);
+        var h = S(9) * 2 + MathF.Max(wordsH, controlH);
         var top = at.Y + (h - wordsH) / 2;
         var old = Palette.Opacity;
         if (disabled) Palette.Opacity = old * 0.5f;
-        Txt.Line(dl, new Vector2(x, top), Txt.Fit(name, Face.SansMedium, 14, wordsW), Face.SansMedium, 14, Palette.Ink);
-        if (note != null) Lines.Draw(dl, new Vector2(x, top + nameH + S(2)), wordsW, note, Face.Sans, 12, Palette.Muted, 18);
+        Txt.Line(dl, new Vector2(x, top), Txt.Fit(name, Face.SansSemibold, 13, wordsW), Face.SansSemibold, 13, Palette.Ink);
+        if (note != null) Lines.Draw(dl, new Vector2(x, top + nameH + S(1)), wordsW, note, Face.Sans, 11, Palette.Muted, 16);
         Palette.Opacity = old;
         Kit.Reserve(at, w, h);
-        return new Vector2(at.X + w - S(16) - controlW, at.Y + (h - controlH) / 2);
+        return new Vector2(at.X + w - S(inset) - controlW, at.Y + (h - controlH) / 2);
     }
 
     public static bool SwitchRow(int index, string id, string name, string? note, bool on, bool disabled = false)
     {
-        var p = SetRow(index, name, note, S(44), S(24), disabled);
+        var p = SetRow(index, name, note, S(32), S(18), disabled);
         return Kit.Switch(id, p, on, disabled);
     }
 
@@ -204,7 +205,7 @@ internal static class Parts
 
     public static int SegmentedRow(int index, string id, string name, string? note, IReadOnlyList<string> items, int selected)
     {
-        var p = SetRow(index, name, note, Kit.SegmentedWidth(items), S(36));
+        var p = SetRow(index, name, note, Kit.SegmentedWidth(items), Kit.SegmentedHeight);
         return Kit.Segmented(id, p, items, selected);
     }
 

@@ -45,7 +45,8 @@ public static class Theme
             vars++;
         }
 
-        C(ImGuiCol.WindowBg, Palette.Ground);
+        // The leaf, at 97% (the mock-up's windows).
+        C(ImGuiCol.WindowBg, Palette.WithAlpha(Palette.Ground, 0.97f));
         C(ImGuiCol.Border, Palette.Line);
         C(ImGuiCol.BorderShadow, Vector4.Zero);
         C(ImGuiCol.TitleBg, Palette.Footer);

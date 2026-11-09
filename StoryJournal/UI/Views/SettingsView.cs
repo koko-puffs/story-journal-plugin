@@ -17,14 +17,11 @@ public sealed partial class MainWindow
 
     private void DrawSettings()
     {
-        PlaceHead("Settings", "The journal in game");
-        Kit.Gap(14);
-
         // Linked or not.
         var linked = journal.Sync.Link;
         if (linked is LinkState.Unlinked or LinkState.Refused)
         {
-            Kit.BeginPanel("##set-link", 16, 18, 16, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+            Kit.BeginPanel("##set-link", 16, 18, 16, Palette.Leaf, Palette.Line, Palette.RadiusMd);
             var refused = linked is LinkState.Refused r ? r.Why : null;
             Txt.Line(Kit.Dl, Kit.At, "Not linked", Face.SansSemibold, 14, Palette.Ink, 20);
             Kit.Gap(20);
@@ -36,28 +33,31 @@ public sealed partial class MainWindow
         else
         {
             var off = journal.Sync.SwitchedOff;
-            Kit.BeginPanel("##set-link", 14, 18, 14, Palette.Over(Palette.SuccessWash, Palette.Leaf), Palette.SuccessEdge, Palette.RadiusXl);
+            // Linked: the good green's wash and edge, its dot ringed, who and where, Unlink as a ghost.
+            Kit.BeginPanel("##set-link", 10, 12, 10, Palette.Over(Palette.Rgba(134, 217, 168, 0.07f), Palette.Leaf), Palette.Rgba(134, 217, 168, 0.25f), 10);
             var at = Kit.At;
             var w = Kit.Width;
             var account = linked is LinkState.Linked l ? l.Account : "…";
-            Kit.Dot(at + new Vector2(S(4), S(10)), off ? Palette.Warn : Palette.Good, 8);
+            var dotColor = off ? Palette.Warn : Palette.Good;
+            Kit.Dl.AddCircleFilled(at + new Vector2(S(4), S(17)), S(3.5f + 3), Palette.U32(Palette.WithAlpha(dotColor, 0.18f)), 16);
+            Kit.Dot(at + new Vector2(S(4), S(17)), dotColor, 7);
             var unlinkW = Kit.ButtonWidth("Unlink", BtnSize.Sm, null, Btn.Quiet);
             Txt.Line(Kit.Dl, at + new Vector2(S(18), 0), Txt.Fit(off ? "Switched off on the site for now" : linked is LinkState.Linking ? "Linking…" : $"Linked to the site as {account}",
-                Face.SansSemibold, 14, w - S(18) - unlinkW - S(10)), Face.SansSemibold, 14, Palette.Ink, 20);
+                Face.SansSemibold, 13, w - S(18) - unlinkW - S(10)), Face.SansSemibold, 13, Palette.Ink, 19);
             var sub = new List<string>();
             if (journal.Player is { World.Length: > 0 } p) sub.Add(p.World);
             sub.Add(journal.Sync.SyncedAt is { } synced ? $"last sent {Ui.Ago(synced)}" : "nothing sent yet");
             if (SiteLink.LooksRight(config.Token)) sub.Add($"token {SiteLink.Masked(config.Token)}");
-            Txt.Line(Kit.Dl, at + new Vector2(S(18), S(20)), Txt.Fit(string.Join(" · ", sub), Face.Sans, 12, w - S(18) - unlinkW - S(10)), Face.Sans, 12, Palette.Muted, 17);
-            if (Kit.Button("##set-unlink", new Vector2(at.X + w - unlinkW, at.Y + S(4)), "Unlink", Btn.Quiet, BtnSize.Sm)) Later(() => journal.Link(string.Empty));
-            Kit.Reserve(at, w, S(38));
+            Txt.Line(Kit.Dl, at + new Vector2(S(18), S(19)), Txt.Fit(string.Join(" · ", sub), Face.Sans, 11, w - S(18) - unlinkW - S(10)), Face.Sans, 11, Palette.Muted, 15);
+            if (Kit.Button("##set-unlink", new Vector2(at.X + w - unlinkW, at.Y + (S(34) - Kit.ButtonHeight(BtnSize.Sm)) / 2), "Unlink", Btn.Quiet, BtnSize.Sm)) Later(() => journal.Link(string.Empty));
+            Kit.Reserve(at, w, S(34));
             Kit.EndPanel();
         }
 
         // Spoilers: the site's one setting.
-        Kit.Gap(20);
+        Kit.Gap(16);
         Ink.KickerRow("Spoilers");
-        Kit.Gap(8);
+        Kit.Gap(2);
         var prefs = journal.Prefs;
         {
             var at = Kit.At;
@@ -69,20 +69,25 @@ public sealed partial class MainWindow
                 Spoilers.Gentle => "Duties ahead show their names; nothing of the story. One setting, shared with the site.",
                 _ => "Nothing ahead shows: what's ahead is inked out. One setting, shared with the site.",
             };
-            Icons.Draw(Kit.Dl, Icon.Check, at + new Vector2(0, S(4)), S(15), Palette.Good);
+            // The site's shield (green: it's being careful), the setting's name and what it means, "On the site →".
             var bw = Kit.ButtonWidth("On the site", BtnSize.Sm, Icon.ArrowRight);
-            Txt.Line(Kit.Dl, at + new Vector2(S(26), 0), name, Face.SansSemibold, 14, Palette.Ink, 20);
-            var h = S(20) + Lines.Draw(Kit.Dl, at + new Vector2(S(26), S(20)), w - S(26) - bw - S(12), says, Face.Sans, 12, Palette.Muted, 17);
-            if (Kit.Button("##set-spoilers", new Vector2(at.X + w - bw, at.Y + S(2)), "On the site", Btn.Glass, BtnSize.Sm, Icon.ArrowRight))
+            var tw = w - S(27) - bw - S(12);
+            var wordsH = Txt.Natural(Face.SansSemibold, 13) + S(1) + Lines.Height(says, tw, Face.Sans, 11, 16);
+            var rowH = S(9) * 2 + MathF.Max(wordsH, Kit.ButtonHeight(BtnSize.Sm));
+            var top = at.Y + (rowH - wordsH) / 2;
+            Icons.Draw(Kit.Dl, Icon.Shield, new Vector2(at.X, at.Y + (rowH - S(15)) / 2), S(15), prefs.Spoilers == Spoilers.Off ? Palette.Muted : Palette.Good);
+            Txt.Line(Kit.Dl, new Vector2(at.X + S(27), top), name, Face.SansSemibold, 13, Palette.Ink);
+            Lines.Draw(Kit.Dl, new Vector2(at.X + S(27), top + Txt.Natural(Face.SansSemibold, 13) + S(1)), tw, says, Face.Sans, 11, Palette.Muted, 16);
+            // Its button reads as the site's: the words, then the arrow after them.
+            if (Kit.Button("##set-spoilers", new Vector2(at.X + w - bw, at.Y + (rowH - Kit.ButtonHeight(BtnSize.Sm)) / 2), "On the site", Btn.Glass, BtnSize.Sm, Icon.ArrowRight, 0, false, null, 0, true))
                 Dalamud.Utility.Util.OpenLink(SiteLink.SiteUrl);
-            Kit.Reserve(at, w, MathF.Max(h, Kit.ButtonHeight(BtnSize.Sm)));
+            Kit.Reserve(at, w, rowH);
         }
 
         // What comes to you.
-        Kit.Gap(22);
+        Kit.Gap(16);
         Ink.KickerRow("What comes to you");
-        Kit.Gap(4);
-        Kit.BeginPanel("##set-come", 2, 0, 2, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+        Kit.Gap(2);
         var row = 0;
         if (Parts.SwitchRow(row++, "##set-welcome", "Welcome back", $"After {(prefs.WelcomeHours > 0 ? Ui.Plural(prefs.WelcomeHours, "hour", "hours") : "any time")} away (the site's setting): the recap and the next step.", config.ShowWelcome))
             Later(() => Flip(() => config.ShowWelcome = !config.ShowWelcome));
@@ -104,15 +109,13 @@ public sealed partial class MainWindow
             Later(() => Flip(() => config.ChatMessages = !config.ChatMessages));
         if (Parts.ButtonRow(row++, "##set-show-welcome", "Welcome back now", "Opens the card whatever the time away.", "Show", Btn.Glass, null, journal.Sync.Hello == null))
             Later(journal.ShowWelcome);
-        Kit.EndPanel();
 
         // Quiet times.
-        Kit.Gap(22);
+        Kit.Gap(16);
         Ink.KickerRow("Quiet times");
-        Kit.Gap(4);
-        Kit.BeginPanel("##set-quiet", 2, 0, 2, Palette.Leaf, Palette.Line, Palette.RadiusXl);
-        var tick = Parts.SetRow(0, "Never in combat, duties or cutscenes", "Always: anything that comes waits for a calm moment.", S(16), S(16));
-        Icons.Draw(Kit.Dl, Icon.Check, tick, S(16), Palette.Good);
+        Kit.Gap(2);
+        var tick = Parts.SetRow(0, "Never in combat, duties or cutscenes", "Always: anything that comes waits for a calm moment.", S(15), S(15));
+        Icons.Draw(Kit.Dl, Icon.Check, tick, S(15), Palette.Good);
         if (Parts.SwitchRow(1, "##set-party", "Hold it all while I'm in a party", "Cards wait until you're on your own.", config.HoldInParty))
             Later(() => Flip(() => config.HoldInParty = !config.HoldInParty));
         if (Parts.SwitchRow(2, "##set-calm", "Calm", "Nothing moves: windows, cards and the ribbon simply appear. (Dalamud's reduced motion does the same.)", config.Calm))
@@ -121,13 +124,11 @@ public sealed partial class MainWindow
                 config.Calm = !config.Calm;
                 Ink.Calm = config.Calm;
             }));
-        Kit.EndPanel();
 
         // Recording.
-        Kit.Gap(22);
+        Kit.Gap(16);
         Ink.KickerRow("Recording");
-        Kit.Gap(4);
-        Kit.BeginPanel("##set-rec", 2, 0, 2, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+        Kit.Gap(2);
         row = 0;
         if (Parts.SwitchRow(row++, "##set-story", "Quests, cutscenes, places, duties and levels", "Written as they happen. Off: only what you save yourself.", config.RecordStory))
             Later(() => Flip(() => config.RecordStory = !config.RecordStory));
@@ -143,13 +144,12 @@ public sealed partial class MainWindow
         if (Parts.ButtonRow(row++, "##set-pause", config.Paused ? "Recording is paused" : "Pause recording", "Or /sj pause and /sj resume. What's queued still goes.",
                 config.Paused ? "Resume" : "Pause", config.Paused ? Btn.Primary : Btn.Glass, config.Paused ? Icon.Play : Icon.Pause))
             Later(() => journal.Pause(!config.Paused));
-        Kit.EndPanel();
 
         // Keys.
-        Kit.Gap(22);
+        Kit.Gap(16);
         Ink.KickerRow("Keys");
         Kit.Gap(4);
-        Kit.BeginPanel("##set-keys", 14, 16, 14, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+        Kit.BeginPanel("##set-keys", 14, 16, 14, Palette.Leaf, Palette.Line, Palette.RadiusMd);
         KeyField("##set-key-line", "Save the line", ref lineKey, config.LineKey, v => config.LineKey = v);
         Kit.Gap(10);
         KeyField("##set-key-photo", "Photo", ref photoKey, config.PhotoKey, v => config.PhotoKey = v);
@@ -160,10 +160,10 @@ public sealed partial class MainWindow
         Kit.EndPanel();
 
         // Offline.
-        Kit.Gap(22);
+        Kit.Gap(16);
         Ink.KickerRow("Offline");
         Kit.Gap(4);
-        Kit.BeginPanel("##set-off", 14, 16, 14, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+        Kit.BeginPanel("##set-off", 14, 16, 14, Palette.Leaf, Palette.Line, Palette.RadiusMd);
         DrawQueueLine();
         if (journal.Queue.AsideCount > 0)
             Parts.Quiet($"{Ui.Plural(journal.Queue.AsideCount, "thing", "things")} the site refused outright, kept aside on this PC (the plugin's config folder, queue/aside.jsonl).");
