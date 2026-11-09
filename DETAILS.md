@@ -67,7 +67,7 @@ The calls, as the migration has them (arguments `p_token`, `p_key`, `p_session`,
 | `sj_plugin_theory(p_token, p_key, p_theory)` | as soon as it can | `{ id, body, subject?, checkAfter?, checkAt? }`: `checkAt` the main-story index to ask at as this PC worked it out, `checkAfter` main-story quests from sealing (1–5000) for older sites. A theory sealed before the story's first reading after login waits until its index is worked out. |
 | `sj_plugin_theory_answer(p_token, p_id, p_status)` | when you settle one | `called`, `partly` (partly right), `missed`, `changed` (or `sealed` again: `Core/TheoryAnswers.cs`, tested). Theories sealed here go before answers, and an answer to one waits until the theory has gone (the site would say `gone` and the answer would be lost; and a theory that reaches the site after its ask-at point is kept there with no `check_at`, so its answer has to follow it). |
 | `sj_plugin_poll(p_token, p_key)` | about every 30 s while you're logged in and linked (not on a loading screen) | The site's **Flag it in game** (Today's button): answered `{ flag: ISO \| null, now: ISO }`, the moment of the last ask in the last 15 minutes and the site's own time (freshness is judged on the site's clock, from `now`, so a PC clock that's off neither loses nor replays a flag; without `now`, the PC's). A flag newer than the last this character acted on (`CharacterMemory.FlaggedFromSite`) and not older than 15 minutes is acted on once the game's calm (not in combat, a duty, a cutscene or a loading screen) and the story's been read after login: the map flag on the current step (`MapFlag`), and the tracker's ribbon dropped (unfolded and unrolled again). One that waited past its 15 minutes (a long duty) is let go; one asked for before a logout, or for another character, is forgotten. `Core/FlagPoll.cs` decides (tested). Refusals: `token` and `off` as below; `rate` waits 5 minutes and `data` (a key it doesn't take) 10, the poll only; no answer or the site's trouble backs the poll off (5 s, doubling to 5 minutes) without being shown as the journal's problem. |
-| `POST /functions/v1/sj-plugin-photo` | once the site has the photo's session | multipart: `token, character, session, id, at, caption, image` (a JPEG, ≤ 6 MB, ≤ 8192 px a side), header `apikey`. Answers `{ id, data }` or `{ message, hint }`. |
+| `POST /functions/v1/sj-plugin-photo` | once the site has the photo's session | multipart: `token, character, session, id, at, caption, image` (a JPEG, ≤ 1 MB, ≤ 4096 px a side), header `apikey`. Answers `{ id, data }` or `{ message, hint }`. |
 
 Each kind of call is paced under the site's hourly limits for a person (hello 240, sync 600, note 240,
 theory 120 with the answers, photo 120, poll 240), which the site's own pages share: hello about 4 an
@@ -190,9 +190,11 @@ from other plugins that read it).
 
 As Glamour Studio's shots: the HUD is hidden (as Scroll Lock does) for a few frames, the game's next
 frame is grabbed before ImGui draws (no plugin window in it either), the HUD shown again; on a
-worker the picture is made at most 2560 on its long side (1920 if that's still too big) and written
-as a JPEG (WIC through Dalamud's texture readback) at the first quality under 5 MB, then kept in the
-queue. Making it is given up after 25 s ("Try again"), and then it's never kept, even if it finishes
+worker the picture is made at most 1920 on its long side (1600, then 1280, if that's still too big)
+and written as a JPEG (WIC through Dalamud's texture readback) at the first of qualities 0.82 to 0.55
+under 900 KB (a few hundred KB as a rule; the site keeps 1 MB a photo, 1,000 photos and 500 MB an
+account), then kept in the queue. A photo made by an older version and still waiting that's over
+1 MB is let go, said once (the site no longer takes it). Making it is given up after 25 s ("Try again"), and then it's never kept, even if it finishes
 after (it's either given up or kept, never both). It goes to the site once the site has its session;
 one whose session the site refused is set aside. *Unverified in the game for this plugin* (the same
 code works in Glamour Studio's).
@@ -319,7 +321,8 @@ place says so. *Unverified*.
 **The file.** `https://assets.kokos-tools.com/story/en/codex.json`, made from the game's files by
 kokos-tools (its `design/story-journal/GAMEDATA.md`, "The Codex from the game"): `{ version: 2,
 entries: [{ key, kind, name, aliases, zone?, subtitle?, image?, layers: [{ text, source, quest?,
-chapter?, expansion?, complete?, spoilers?: 'off' }], whisper? }] }`, `kind` one of `person`,
+chapter?, expansion?, complete?, spoilers?: 'off' }], whisper?, portraits? }] }` (`portraits`, the
+site's pictures of an entry, aren't read here), `kind` one of `person`,
 `place`, `lore`, `word`, `item`, `chapter`, `collection`; about 4–5 thousand entries (every person
 who speaks in a quest), some megabytes. Fetched on a worker (packed with Brotli or gzip on the way,
 read as a stream, at most 64 MB unpacked), kept in the plugin's config folder (`codex.json`) and
@@ -640,6 +643,8 @@ until it's made: until then the download fails, so release before telling anyone
 - Theories can be settled as **Partly** (partly right).
 - Quiet times: **Hold it all while I'm in a party**.
 - `/sj ask <name>` opens the Codex on a name.
+- Photos are much smaller: 1920 at most on the long side, under 900 KB (were 2560 and up to 5 MB),
+  as the site now keeps 1 MB a photo, 1,000 photos and 500 MB an account.
 - Fixes: a note refused for size no longer holds up the notes after it; a full notebook (5,000 notes) holds
   only the notes, not the evening's sync, photos and the flag; hello, photos and the queue's writer can't get
   stuck; unloading waits for writes in flight; a Codex layer whose gate can't be read stays shut; a flag

@@ -18,8 +18,8 @@ public sealed record PhotoAsk(Guid Session, string Character, string Caption, Da
 /// <summary>
 /// Photos without the HUD, as Glamour Studio's shots are taken: the HUD is hidden (as Scroll Lock does)
 /// for a few frames, the game's next frame is grabbed before ImGui draws (so no plugin window is in
-/// it either), the HUD shown again, then the picture is made at most 2560 on its long side (1920 if
-/// that's still too big) as a JPEG under the site's 6 MB, off the framework thread, and kept in the
+/// it either), the HUD shown again, then the picture is made at most 1920 on its long side (1600, then
+/// 1280, if that's still too big) as a JPEG under 900 KB (the site keeps 1 MB a photo), off the framework thread, and kept in the
 /// queue (<see cref="EventQueue.AddPhoto"/>) until the site has it. Framework thread, but for the making.
 /// </summary>
 public sealed class Photos : IDisposable
@@ -30,12 +30,12 @@ public sealed class Photos : IDisposable
     /// <summary>DXGI_FORMAT_B8G8R8A8_UNORM.</summary>
     private const int Bgra = 87;
 
-    private static readonly int[] LongEdges = { 2560, 1920 };
+    private static readonly int[] LongEdges = { 1920, 1600, 1280 };
 
-    private static readonly float[] Qualities = { 0.9f, 0.84f, 0.78f, 0.72f, 0.65f, 0.58f, 0.5f };
+    private static readonly float[] Qualities = { 0.82f, 0.76f, 0.7f, 0.62f, 0.55f };
 
-    /// <summary>What a photo may weigh: well under the bucket's 6 MB.</summary>
-    private const int MaxBytes = 5_000_000;
+    /// <summary>What a photo may weigh: under the bucket's 1 MB (a journal keeps a few hundred KB a photo).</summary>
+    private const int MaxBytes = 900_000;
 
     private static readonly TimeSpan MakeTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan MakeGiveUp = TimeSpan.FromSeconds(25);
@@ -234,8 +234,8 @@ public sealed class Photos : IDisposable
     }
 
     /// <summary>
-    /// On a worker: the grabbed frame made 2560 at most on its long side, written as a JPEG at the first
-    /// quality that's small enough (1920 if none at 2560 is). The frame and the sized picture are let go
+    /// On a worker: the grabbed frame made 1920 at most on its long side, written as a JPEG at the first
+    /// quality that's small enough (1600, then 1280, if none at 1920 is). The frame and the sized picture are let go
     /// of here whatever happens.
     /// </summary>
     private async Task<(byte[]? Jpeg, int Width, int Height, string? Why)> Make(IDalamudTextureWrap grabbed, CancellationToken stopping)

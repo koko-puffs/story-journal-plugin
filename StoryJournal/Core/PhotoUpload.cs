@@ -39,11 +39,11 @@ public sealed record PhotoResult(PhotoOutcome Outcome, string? Why, string? Hint
 /// </summary>
 public static class PhotoUpload
 {
-    /// <summary>The bucket's limit: 6 MB.</summary>
-    public const int MaxBytes = 6 * 1024 * 1024;
+    /// <summary>The bucket's limit: 1 MB.</summary>
+    public const int MaxBytes = 1024 * 1024;
 
-    /// <summary>The longest side the site takes (8192); pictures are made smaller than this anyway.</summary>
-    public const int MaxSide = 8192;
+    /// <summary>The longest side the site takes (4096); pictures are made 1920 at most anyway.</summary>
+    public const int MaxSide = 4096;
 
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(90);
 
