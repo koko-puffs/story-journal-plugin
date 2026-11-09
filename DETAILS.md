@@ -389,6 +389,14 @@ switch 32×18 (the deep red, a white knob, when on); the pick-one pill 32 tall; 
 on the quill's edge); chips raised with the line edge (the ribbon's or the quill's when they mean it). The
 windows are the leaf at 97%; the journal's title bar carries the small ribbon before "Story Journal" and, on
 the right, who's playing (on Now) or the open place.
+The mark (`Parts.Mark`, at each card's head, and the plugin's icon) is the site's (kokos-tools:
+`src/features/marks.ts`, 8 November 2026): a bookmark of the tile red, notched at its foot, an open
+book on it in white; drawn flat in the mark's 30 × 30 grid (its body a rectangle rounded at the
+top, its two tails convex pieces either side of the notch; the icon's red is a blend from cherry
+to wine; a star over the book came off the same day). It was the open book on a rounded square
+before.
+Every card waits for a calm moment (`InGame.Calm`: not in combat, a duty, a cutscene, a loading
+screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group Pose anyway.
 
 The motifs are draw-list shapes (`UI/Kit/Ink.cs`, the geometry in `Core/Shapes.cs`, tested): the
 **ribbon** (a rectangle down to its V's notch and a triangle each side; the bookmark runs from the deep red at
