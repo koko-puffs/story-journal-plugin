@@ -24,12 +24,12 @@
     "LoadPriority": 0,
     "IconUrl": "https://raw.githubusercontent.com/koko-puffs/story-journal-plugin/main/StoryJournal/images/icon.png",
     "AcceptsFeedback": true,
-    "AssemblyVersion": "0.2.0.0",
-    "TestingAssemblyVersion": "0.2.0.0",
-    "DownloadLinkInstall": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.2.0/StoryJournal.zip",
-    "DownloadLinkUpdate": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.2.0/StoryJournal.zip",
-    "DownloadLinkTesting": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.2.0/StoryJournal.zip",
-    "LastUpdate": 1794204807,
+    "AssemblyVersion": "0.2.1.0",
+    "TestingAssemblyVersion": "0.2.1.0",
+    "DownloadLinkInstall": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.2.1/StoryJournal.zip",
+    "DownloadLinkUpdate": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.2.1/StoryJournal.zip",
+    "DownloadLinkTesting": "https://github.com/koko-puffs/story-journal-plugin/releases/download/v0.2.1/StoryJournal.zip",
+    "LastUpdate": 1794208093,
     "IsHide": false,
     "IsTestingExclusive": false
   }
