@@ -437,6 +437,8 @@ public class CodexV2Tests
             { "text": "Expansion -1.", "source": "notes", "expansion": -1 },
             { "text": "Complete, yes.", "source": "occult", "complete": "yes" },
             { "text": "Spoilers strict.", "source": "card", "spoilers": "strict" },
+            { "text": "Quest past a row id.", "source": "codex", "quest": 4294967296 },
+            { "text": "Chapter past a row id.", "source": "synopsis", "chapter": 99999999999 },
             { "text": "No gate.", "source": "codex", "quest": null, "complete": false },
             { "text": "Quest 66537.", "source": "codex", "quest": 66537 }
         ] } ] }
@@ -445,8 +447,8 @@ public class CodexV2Tests
         var seen = new HashSet<string> { "odd" };
         var all = G(Spoilers.Gentle, 5, true, new uint[] { 66537 }, new uint[] { 1 });
         Assert.Equal(new[] { "No gate.", "Quest 66537." }, x.Layers(e, new List<string>(), seen, all).Select(l => l.Text));
-        Assert.All(e.Layers.Take(6), l => Assert.True(l.SpoilersOff));
-        Assert.Equal(8, x.Layers(e, new List<string>(), NoneSeen, G(Spoilers.Off)).Count);
+        Assert.All(e.Layers.Take(8), l => Assert.True(l.SpoilersOff));
+        Assert.Equal(10, x.Layers(e, new List<string>(), NoneSeen, G(Spoilers.Off)).Count);
     }
 
     [Fact]

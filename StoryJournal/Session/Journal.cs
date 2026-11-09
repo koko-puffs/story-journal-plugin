@@ -660,7 +660,13 @@ public sealed class Journal : IDisposable
         if (flagWaiting is not { } at || InGame.Busy || Memory is not { } memory) return;
         if (Story.Now == null && !Story.Broken && FlagPoll.Wanted(at, memory.FlaggedFromSite, now, flagSkew)) return;
         flagWaiting = null;
-        if (!FlagPoll.Wanted(at, memory.FlaggedFromSite, now, flagSkew)) return;
+        if (!FlagPoll.Wanted(at, memory.FlaggedFromSite, now, flagSkew))
+        {
+            // Gone stale waiting for the story's reading (never read in time): said, not dropped quietly.
+            if (Story.Now == null)
+                AddToast("Couldn't flag it", "Your story wasn't read in time. Ask again from the site.", null, ToastKind.Plain);
+            return;
+        }
         memory.FlaggedFromSite = at;
         MemoryChanged();
         FlagNext();

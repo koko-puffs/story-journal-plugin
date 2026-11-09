@@ -169,8 +169,12 @@ public sealed class Codex
                     // "spoilers": "strict") keeps the layer shut to all but spoilers off, as the site's
                     // model/codex.ts does: never opened to everyone.
                     var unreadable = false;
-                    var quest = Gate(l, "quest", 1, ref unreadable) is { } qv && qv <= uint.MaxValue ? QuestIds.Row((uint)qv) : (uint?)null;
-                    var chapter = Gate(l, "chapter", 1, ref unreadable) is { } cv && cv <= uint.MaxValue ? (uint)cv : (uint?)null;
+                    // (A number past a row id's range is no gate the game has: unreadable too, as the site's.)
+                    var qv = Gate(l, "quest", 1, ref unreadable);
+                    var cv = Gate(l, "chapter", 1, ref unreadable);
+                    if (qv > uint.MaxValue || cv > uint.MaxValue) unreadable = true;
+                    var quest = qv is { } qn && qn <= uint.MaxValue ? QuestIds.Row((uint)qn) : (uint?)null;
+                    var chapter = cv is { } cn && cn <= uint.MaxValue ? (uint)cn : (uint?)null;
                     if (Gate(l, "expansion", 0, ref unreadable) is { } ev) expansion = (int)Math.Min(ev, 99);
                     else expansion = null;
                     var complete = l.TryGetProperty("complete", out var done) && done.ValueKind == JsonValueKind.True;

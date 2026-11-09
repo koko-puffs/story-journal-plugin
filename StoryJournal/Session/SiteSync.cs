@@ -679,6 +679,15 @@ public sealed class SiteSync : IDisposable
                     sync.Changed();
                     return;
                 }
+                if (r.Hint == "full")
+                {
+                    // The account's notes are full (5,000): these wait, said in the header, and the rest
+                    // (syncs, photos, the flag) go on; tried again in a while, in case some were removed.
+                    Problem = r.Why;
+                    Version++;
+                    pace.RateLimited(at, SyncPolicy.OffWait);
+                    return;
+                }
                 Refused(r, pace);
             });
         }, TaskScheduler.Default);
