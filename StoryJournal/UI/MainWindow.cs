@@ -22,7 +22,7 @@ public enum MainTab
 /// <summary>
 /// The journal (<c>/sj</c>), "Ink &amp; Ribbon": a rail down the left with the site's places (Now, This evening,
 /// Codex, Notebook), Settings at its foot under the story's progress, and the open place on the right. The
-/// rail folds to its pictures when the window is narrow; its red bar slides to the place you pick (220ms).
+/// rail folds to its pictures when the window is narrow; the open place is raised, its picture in red.
 /// Everything shown is read from <see cref="Journal"/> each frame; what you press goes back to it after the
 /// frame's drawing is done.
 /// </summary>
@@ -111,10 +111,6 @@ public sealed partial class MainWindow : Window, IDisposable
     private const float RailNarrow = 52;
     private const float PanePad = 18;
 
-    /// <summary>The rail's red bar: where it was and where it's going (it slides, 220ms settle).</summary>
-    private readonly Anim barMove = new(Durations.Step, Ease.Settle);
-    private float barFrom;
-    private float barTo = float.NaN;
 
     public override void Draw()
     {
@@ -229,16 +225,14 @@ public sealed partial class MainWindow : Window, IDisposable
         var y = at.Y + S(12);
         var x = at.X + pad;
         var iw = w - pad * 2;
-        float? barY = null;
         for (var i = 0; i < Places.Length; i++)
         {
             var (t, label, icon) = Places[i];
             var pos = new Vector2(x, y);
             var on = tab == t;
             var (clicked, hovered, _) = Kit.Hit(Ids.Of("##rail", i), pos, new Vector2(iw, itemH));
-            // The open place: raised, its picture in the ribbon's red, the red bar inside its left edge (drawn below, sliding).
+            // The open place: raised, its picture in the ribbon's red.
             if (on || hovered) dl.AddRectFilled(pos, pos + new Vector2(iw, itemH), Palette.U32(on ? Palette.LeafRaised : Palette.RowHover), S(8));
-            if (on) barY = y;
             var ink = on || hovered ? Palette.Ink : Palette.Muted;
             var iconAt = narrow ? new Vector2(x + (iw - S(15)) / 2, y + (itemH - S(15)) / 2) : new Vector2(x + S(10), y + (itemH - S(15)) / 2);
             Icons.Draw(dl, icon, iconAt, S(15), on ? Palette.Ribbon : ink);
@@ -302,7 +296,6 @@ public sealed partial class MainWindow : Window, IDisposable
             Icons.Draw(dl, Icon.Gear, gp + new Vector2((S(36) - S(15)) / 2, (S(30) - S(15)) / 2), S(15), on ? Palette.Ribbon : hovered ? Palette.Ink : Palette.Muted);
             if (hovered) Kit.Tooltip("Settings");
             if (clicked) Later(() => tab = MainTab.Settings);
-            if (on) barY = gp.Y - (itemH - S(30)) / 2;
         }
         else
         {
@@ -312,35 +305,6 @@ public sealed partial class MainWindow : Window, IDisposable
                 Later(() => tab = MainTab.Settings);
             if (Kit.IconButton("##rail-site", new Vector2(x + setW + S(6), fy), Icon.ArrowRight, "Your journal on kokos-tools.com", 28))
                 Dalamud.Utility.Util.OpenLink(SiteLink.SiteUrl);
-        }
-
-        // The red bar inside the open place's left edge (the site's 3px inset), sliding when it moves (220ms, settle).
-        if (barY is { } to)
-        {
-            if (float.IsNaN(barTo))
-            {
-                barFrom = barTo = to;
-            }
-            else if (MathF.Abs(to - barTo) > 0.5f)
-            {
-                barFrom = barMove.Started ? barMove.Between(barFrom, barTo, Ink.Now, Ink.Still) : barTo;
-                barTo = to;
-                barMove.Start(Ink.Now);
-            }
-            var by = barMove.Started ? barMove.Between(barFrom, barTo, Ink.Now, Ink.Still) : barTo;
-            var bx = narrow ? x + (iw - S(36)) / 2 : x;
-            var bt = narrow && tab == MainTab.Settings ? by + (itemH - S(30)) / 2 : by;
-            var bb = narrow && tab == MainTab.Settings ? bt + S(30) : by + itemH;
-            var bw = narrow ? S(36) : iw;
-            if (MathF.Abs(by - to) < 0.5f)
-            {
-                // At rest: the inset follows the place's rounded corners, as the site's box-shadow does (a "[").
-                dl.PushClipRect(new Vector2(bx, bt), new Vector2(bx + S(8), bb), true);
-                dl.AddRectFilled(new Vector2(bx, bt), new Vector2(bx + bw, bb), Palette.U32(Palette.Ribbon), S(8));
-                dl.AddRectFilled(new Vector2(bx + S(3), bt), new Vector2(bx + bw + S(3), bb), Palette.U32(Palette.LeafRaised), S(8));
-                dl.PopClipRect();
-            }
-            else dl.AddRectFilled(new Vector2(bx, bt), new Vector2(bx + S(3), bb), Palette.U32(Palette.Ribbon), S(1.5f));
         }
     }
 

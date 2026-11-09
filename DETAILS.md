@@ -431,7 +431,7 @@ nothing moves either (`Ink.Busy`, set each frame: the game's busy, as motion.htm
   evening**, **Codex** and **Notebook** (the evening's live dot, the Codex's count, the theories due or
   sealed), the story's progress at its foot (the volume, the chapter's numeral and percentage, a bar),
   **Settings** (a gear) and the site. Narrower than 600px the rail folds to its pictures. The open place is
-  raised with a red bar inside its left edge, which slides to the place you pick (220ms, settle); the
+  raised, its picture in the ribbon's red (no bar sliding beside it: it lagged when the window moved); the
   evening's live dot says how long it's been under way.
   - *Now*: the chapter's numeral, the place and your level; the pace lock's warnings; **the bookmark**
     (a ribboned card, its ribbon dropping once for each quest): the quest, its step in a box with the
@@ -624,6 +624,8 @@ until it's made: until then the download fails, so release before telling anyone
 
 ### 0.2.2 (unreleased)
 
+- The rail's sliding red bar is gone (it lagged behind and got dragged when the window moved): the
+  open place is raised, its picture red.
 - The main story's chapters are read right again: 0.2.0 put nearly the whole story in A Realm
   Reborn's first chapter and Dawntrail's last quests in its second (the Now tab's chapter, the
   tracker's, milestones and the chapter sent to the site).
