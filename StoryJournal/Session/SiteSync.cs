@@ -68,6 +68,7 @@ public sealed class SiteSync : IDisposable
     private readonly Pace notes = new(TimeSpan.FromSeconds(4), perHour: 200);
     private readonly Pace theories = new(TimeSpan.FromSeconds(4), perHour: 100);
     private readonly Pace photos = new(TimeSpan.FromSeconds(8), backoffFirst: TimeSpan.FromSeconds(30), backoffMost: TimeSpan.FromMinutes(10), perHour: 100);
+    private readonly Pace poll = new(TimeSpan.FromSeconds(10), FlagPoll.Every, perHour: 200);
 
     /// <summary>Goes up with each link: an answer for an earlier one is let go.</summary>
     private int generation;
@@ -139,10 +140,16 @@ public sealed class SiteSync : IDisposable
     /// <summary>The site refused a session outright (framework thread): if it's the one under way, it ends.</summary>
     public event Action<Guid>? SessionRefused;
 
+    /// <summary>The site asked for the map flag ("Flag it in game"): the character's key and when it was asked (FlagPoll).</summary>
+    public event Action<string, DateTime>? FlagAsked;
+
     /// <summary>Who to say hello for, and the session to send the main story's reading with (framework thread).</summary>
     public Func<HelloFor?>? Character { get; set; }
 
     public Func<SessionRecord?>? OpenSession { get; set; }
+
+    /// <summary>Whether the game is between areas (the poll waits).</summary>
+    public Func<bool>? Busy { get; set; }
 
     /// <summary>The token changed (linked, unlinked): start again.</summary>
     public void Relinked()
@@ -217,6 +224,8 @@ public sealed class SiteSync : IDisposable
             if (config.PendingAnswers.Count > 0 || config.Characters.Values.Any(c => c.Theories.Any(t => !t.Sent && !t.Aside))) theories.Changed();
             if (queue.PhotoCount > 0) photos.Changed();
         }
+        // "Flag it in game": asked about every 30 seconds while there's a character, not on a loading screen.
+        if (who != null && Link is LinkState.Linked && Busy?.Invoke() != true) poll.Run(now, () => Poll(who.Key), ex => StartFailed("poll", ex));
         notes.Run(now, () => SendNotes(now), ex => StartFailed("note", ex));
         theories.Run(now, () => SendTheories(now), ex => StartFailed("theory", ex));
         photos.Run(now, () => SendPhoto(now), ex => StartFailed("photo", ex));
@@ -295,6 +304,30 @@ public sealed class SiteSync : IDisposable
             return;
         }
         pace.Done(false, now);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // The site's "Flag it in game".
+
+    private void Poll(string key)
+    {
+        var gen = generation;
+        site.Call("sj_plugin_poll", new JsonObject { ["p_key"] = key }).ContinueWith(t =>
+        {
+            var r = t.IsCompletedSuccessfully ? t.Result : new RpcResult(false, null, "Couldn't reach the site.", Unreachable: true);
+            var flag = r.Ok ? FlagPoll.Read(r.Body) : null;
+            answers.Enqueue(() =>
+            {
+                if (gen != generation) return;
+                if (r.Ok || r.Hint == "data")
+                {
+                    poll.Done(true, DateTime.UtcNow);
+                    if (flag is { } at) FlagAsked?.Invoke(key, at);
+                    return;
+                }
+                Refused(r, poll);
+            });
+        }, TaskScheduler.Default);
     }
 
     // ---------------------------------------------------------------------------------------------

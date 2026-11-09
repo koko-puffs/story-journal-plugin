@@ -21,11 +21,14 @@ public static class SiteLink
     /// <summary>Story Journal on the site.</summary>
     public const string SiteUrl = "https://www.kokos-tools.com/story-journal";
 
-    /// <summary>Where a token is made: Settings → Story Journal → The plugin.</summary>
+    /// <summary>Where a token is made: Settings → Story Journal → In-game plugin (the old tab name, which the site sends there).</summary>
     public const string TokensUrl = "https://www.kokos-tools.com/story-journal?settings=story-journal";
 
-    /// <summary>The longer recap (the Welcome back card's button).</summary>
-    public const string RecapUrl = "https://www.kokos-tools.com/story-journal/recap";
+    /// <summary>The longer recap: "Previously, on your story" on the site's Today.</summary>
+    public const string RecapUrl = "https://www.kokos-tools.com/story-journal#recap";
+
+    /// <summary>The Notebook on the site, on its theories or its notes.</summary>
+    public static string NotebookUrl(bool theories) => $"{SiteUrl}/notebook?tab={(theories ? "theories" : "notes")}";
 
     /// <summary>The Codex, made from the game's files by kokos-tools and shared by the site and the plugin (version 2).</summary>
     public const string CodexUrl = "https://assets.kokos-tools.com/story/en/codex.json";

@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Lumina.Excel.Sheets;
 using StoryJournal.Core;
 
@@ -48,6 +49,41 @@ public static class InGame
     public static bool InQuestTalk => Flag(ConditionFlag.OccupiedInQuestEvent) || Flag(ConditionFlag.OccupiedInCutSceneEvent);
 
     /// <summary>A card may show: not in combat, a duty, a cutscene, a loading screen or Group Pose.</summary>
+    /// <summary>In a party with someone else (the party list has more than you).</summary>
+    public static bool InParty
+    {
+        get
+        {
+            try
+            {
+                return Services.Party.Length > 1;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    /// <summary>The name of the non-player you're looking at (for the quick note's About), or null.</summary>
+    public static string? TargetName()
+    {
+        try
+        {
+            var t = Services.Targets.Target;
+            if (t == null || t.ObjectKind == ObjectKind.Pc) return null;
+            var name = t.Name.TextValue;
+            return name.Length > 0 ? name : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Busy: combat, a duty, a cutscene or a loading screen; nothing comes to you and nothing moves.</summary>
+    public static bool Busy => InCombat || InDuty || InCutscene || Loading;
+
     public static bool Calm => LoggedIn && !InCombat && !InDuty && !InCutscene && !Loading && !Services.ClientState.IsGPosing;
 
     /// <summary>Where the character stands (null when there's none).</summary>

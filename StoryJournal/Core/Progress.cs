@@ -18,7 +18,20 @@ public sealed record CurrentQuest(
     IReadOnlyList<string> Objectives,
     IReadOnlyList<string> Journal,
     string? Previous,
-    IReadOnlyList<string> People);
+    IReadOnlyList<string> People,
+    MapSpot? Spot = null);
+
+/// <summary>The current step's place as the game's map shows it ("X 11.0 Y 15.3"), one decimal.</summary>
+public sealed record MapSpot(float X, float Y)
+{
+    public static MapSpot Of(float x, float y) => new(MathF.Round(x, 1), MathF.Round(y, 1));
+
+    public JsonObject ToJson() => new() { ["x"] = Math.Round((double)X, 1), ["y"] = Math.Round((double)Y, 1) };
+
+    /// <summary>"X 11.0 Y 15.3".</summary>
+    public override string ToString() =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"X {X:0.0} Y {Y:0.0}");
+}
 
 /// <summary>
 /// The plugin's reading of the main story (<c>sj_characters.progress</c>), in exactly the shape the
@@ -83,6 +96,8 @@ public sealed record Progress(
                 ["previous"] = q.Previous,
                 ["people"] = Json.Array(q.People),
             };
+            // Where the step is, as the map shows it: only when the game says.
+            if (q.Spot is { } spot) ((JsonObject)o["current"]!)["spot"] = spot.ToJson();
         }
         else o["current"] = null;
         var ahead = new JsonArray();
@@ -120,19 +135,20 @@ public sealed record Progress(
     }
 
     /// <summary>
-    /// Reads the main story: the road's counts, the current quest (its journal, objectives, people), the
-    /// duties ahead and where to stop. <paramref name="current"/> is the catalog's quest the player's on;
+    /// Reads the main story: the road's counts, the current quest (its journal, objectives, people, the
+    /// step's spot on the map when known), the duties ahead and where to stop. <paramref name="current"/> is the catalog's quest the player's on;
     /// <paramref name="currentText"/> its journal so far and objectives, read from the game.
     /// </summary>
     public static Progress Read(MsqCatalog catalog, MsqPath path, MsqQuest? current, int level, string job,
-        int sequence, IReadOnlyList<string> journal, IReadOnlyList<string> objectives, string? previousLine, IReadOnlyList<string> people)
+        int sequence, IReadOnlyList<string> journal, IReadOnlyList<string> objectives, string? previousLine, IReadOnlyList<string> people,
+        MapSpot? spot = null)
     {
         CurrentQuest? cur = null;
         if (current != null)
         {
             var chapter = current.Chapter != 0 ? catalog.Chapter(current.Chapter)?.Name : null;
             cur = new CurrentQuest(current.Id, current.Name, current.Level, current.Place, sequence, chapter, current.Expansion,
-                catalog.ExpansionName(current.Expansion), objectives, journal, previousLine, people);
+                catalog.ExpansionName(current.Expansion), objectives, journal, previousLine, people, spot);
         }
         return new Progress(level, job, path.Complete, path.Done, path.Total, path.Index(current), path.Expansions(), path.Chapters(current), cur,
             path.Ahead(current), path.Stop(current));

@@ -108,39 +108,58 @@ public static unsafe class Quests
 /// </summary>
 public static unsafe class MapFlag
 {
+    /// <summary>The Level row a quest's step points at (where to go), or null with why. Sheets only: any thread.</summary>
+    public static Level? StepLevel(uint questRow, int sequence, out string why)
+    {
+        why = string.Empty;
+        if (Services.Data.GetExcelSheet<Quest>().GetRowOrDefault(QuestIds.Row(questRow)) is not { } quest)
+        {
+            why = "The game doesn't know that quest.";
+            return null;
+        }
+        var steps = new List<int>();
+        foreach (var t in quest.TodoParams) steps.Add(t.ToDoCompleteSeq);
+        var todo = JournalText.TodoFor(steps, sequence);
+        if (todo < 0 || todo >= quest.TodoParams.Count)
+        {
+            why = "This step has no place on the map.";
+            return null;
+        }
+        foreach (var loc in quest.TodoParams[todo].ToDoLocation)
+        {
+            if (loc.RowId != 0 && loc.IsValid && loc.Value.Territory.IsValid && loc.Value.Map.IsValid) return loc.Value;
+        }
+        why = "This step has no place on the map.";
+        return null;
+    }
+
+    /// <summary>
+    /// The step's place as the game's map shows it (X, Y to one decimal), or null when the game doesn't say.
+    /// Sheets only, so it's read with the rest of the story on the worker. Guarded: null on anything unexpected.
+    /// </summary>
+    public static MapSpot? Spot(uint questRow, int sequence)
+    {
+        try
+        {
+            if (StepLevel(questRow, sequence, out _) is not { } l) return null;
+            var map = Dalamud.Utility.MapUtil.WorldToMap(new Vector2(l.X, l.Z), l.Map.Value);
+            if (!float.IsFinite(map.X) || !float.IsFinite(map.Y) || map.X <= 0 || map.Y <= 0 || map.X > 50 || map.Y > 50) return null;
+            return MapSpot.Of(map.X, map.Y);
+        }
+        catch (Exception ex)
+        {
+            Services.Log.Debug(ex, "Story Journal couldn't read the step's map spot");
+            return null;
+        }
+    }
+
     /// <summary>Flags the place of a quest's step; false (with why) when it can't.</summary>
     public static bool Set(uint questRow, int sequence, out string why)
     {
         why = string.Empty;
         try
         {
-            if (Services.Data.GetExcelSheet<Quest>().GetRowOrDefault(QuestIds.Row(questRow)) is not { } quest)
-            {
-                why = "The game doesn't know that quest.";
-                return false;
-            }
-            var steps = new List<int>();
-            foreach (var t in quest.TodoParams) steps.Add(t.ToDoCompleteSeq);
-            var todo = JournalText.TodoFor(steps, sequence);
-            if (todo < 0 || todo >= quest.TodoParams.Count)
-            {
-                why = "This step has no place on the map.";
-                return false;
-            }
-            Level? level = null;
-            foreach (var loc in quest.TodoParams[todo].ToDoLocation)
-            {
-                if (loc.RowId != 0 && loc.IsValid)
-                {
-                    level = loc.Value;
-                    break;
-                }
-            }
-            if (level is not { } l || !l.Territory.IsValid || !l.Map.IsValid)
-            {
-                why = "This step has no place on the map.";
-                return false;
-            }
+            if (StepLevel(questRow, sequence, out why) is not { } l) return false;
             var agent = AgentMap.Instance();
             if (agent == null)
             {

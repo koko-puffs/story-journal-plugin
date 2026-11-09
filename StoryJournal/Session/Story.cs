@@ -191,8 +191,10 @@ public sealed class Story : IDisposable
         var sequence = current != null && i.Accepted.TryGetValue(current.Id, out var s) ? s : 0;
         IReadOnlyList<string> journal = Array.Empty<string>();
         IReadOnlyList<string> objectives = Array.Empty<string>();
+        MapSpot? spot = null;
         if (current != null && taken)
         {
+            spot = MapFlag.Spot(current.Id, sequence);
             var rows = JournalReader.Rows(current.Id);
             var steps = JournalReader.TodoSteps(current.Id);
             journal = JournalText.Journal(rows, sequence, steps);
@@ -206,7 +208,7 @@ public sealed class Story : IDisposable
             previousLine = whole.Length > 0 ? whole.Split('\n')[^1] : null;
         }
         var people = i.Codex.Named(string.Join("\n", journal), i.People);
-        var progress = Progress.Read(catalog, path, current, i.Level, i.Job, sequence, journal, objectives, previousLine, people);
+        var progress = Progress.Read(catalog, path, current, i.Level, i.Job, sequence, journal, objectives, previousLine, people, spot);
         var json = progress.ToSite().ToJsonString(Json.Compact);
 
         // What the player has seen: the journal of every main-story quest they've finished, the current

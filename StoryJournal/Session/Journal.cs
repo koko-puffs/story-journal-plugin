@@ -51,8 +51,9 @@ public sealed class Journal : IDisposable
         }
         var dir = Services.PluginInterface.GetPluginConfigDirectory();
         Queue = new EventQueue(Path.Combine(dir, "queue"));
-        Sync = new SiteSync(config, Queue) { Character = HelloFor, OpenSession = () => clock?.Current };
+        Sync = new SiteSync(config, Queue) { Character = HelloFor, OpenSession = () => clock?.Current, Busy = () => InGame.Loading };
         Sync.HelloArrived += OnHello;
+        Sync.FlagAsked += OnFlagAsked;
         Sync.Said += t => AddToast(t, null, null, ToastKind.Plain);
         Sync.SessionRefused += OnSessionRefused;
         Codex = new CodexStore(dir, Sync.Site.Http);
@@ -124,6 +125,12 @@ public sealed class Journal : IDisposable
     public MilestoneCard? Milestone { get; set; }
 
     public WrapUpCard? WrapUp { get; set; }
+
+    /// <summary>When the tracker's ribbon was last dropped by the site's "Flag it in game" (it unrolls again then).</summary>
+    public DateTime? TrackerDropped { get; private set; }
+
+    /// <summary>Cards may come now: calm (no combat, duty, cutscene or loading), and not held for a party.</summary>
+    public bool CardsMayCome => InGame.Calm && !(Config.HoldInParty && InGame.InParty);
 
     /// <summary>Opens the quick note (a window's job; the key and /sj note without words ask for it).</summary>
     public event Action? NoteAsked;
@@ -486,7 +493,7 @@ public sealed class Journal : IDisposable
             Queue.PutSession(s);
         }
         Sync.Kick();
-        AddToast("Photo taken", null, $"HUD hidden for the shot · added to this session · {Ui(today)} this session", ToastKind.Good);
+        AddToast("Photo taken", null, $"HUD hidden for the shot · added to this session · {Ui(today)} this session", ToastKind.Photo);
         if (Services.GameGui.GameUiHidden && Config.ChatMessages)
             Services.Chat.Print("Story Journal: photo taken. It goes to the site with this session.");
 
@@ -530,14 +537,14 @@ public sealed class Journal : IDisposable
         Config.Save();
         Sync.KickNotes();
         AddToast("Theory sealed", body.Length > 80 ? body[..78] + "…" : body,
-            checkAfter > 0 ? $"you'll be asked about it in {checkAfter} main-story quests" : "settle it here or on the site", ToastKind.Quill);
+            checkAfter > 0 ? $"opens in about {checkAfter} quests" : "settle it here or on the site", ToastKind.Seal);
         return true;
     }
 
-    /// <summary>Settles a theory: called, missed or changed (your mind).</summary>
+    /// <summary>Settles a theory: called, partly, missed or changed (your mind); or seals it again (TheoryAnswers).</summary>
     public void AnswerTheory(Guid id, string status)
     {
-        if (status is not ("called" or "missed" or "changed" or "sealed")) return;
+        if (!TheoryAnswers.Valid(status)) return;
         Config.PendingAnswers.RemoveAll(a => a.Id == id);
         Config.PendingAnswers.Add(new PendingAnswer { Id = id, Status = status });
         if (Memory is { } memory)
@@ -553,17 +560,15 @@ public sealed class Journal : IDisposable
                 memory.Answered.Add(id);
                 memory.Snoozed.Remove(id);
             }
-            if (memory.Theories.FirstOrDefault(t => t.Id == id) is { } mine) mine.Answered = status != "sealed";
+            if (memory.Theories.FirstOrDefault(t => t.Id == id) is { } mine)
+            {
+                mine.Answered = status != "sealed";
+                mine.Status = status == "sealed" ? string.Empty : status;
+            }
         }
         Config.Save();
         Sync.KickNotes();
-        AddToast("Theory answered", status switch
-        {
-            "called" => "You called it.",
-            "missed" => "Not this time.",
-            "changed" => "You changed your mind.",
-            _ => "Sealed again.",
-        }, null, ToastKind.Quill);
+        AddToast("Theory answered", TheoryAnswers.Toast(status), null, ToastKind.Seal);
     }
 
     /// <summary>Ends the session now (/sj end): its card, to give it a title.</summary>
@@ -603,6 +608,33 @@ public sealed class Journal : IDisposable
         Sync.Relinked();
     }
 
+    /// <summary>A "Flag it in game" from the site waiting for a calm moment, and when it was asked.</summary>
+    private DateTime? flagWaiting;
+
+    /// <summary>The site asked for the flag (the poll's answer): kept until calm, once per request (FlagPoll).</summary>
+    private void OnFlagAsked(string key, DateTime at)
+    {
+        if (key != characterKey || Memory is not { } memory) return;
+        if (!FlagPoll.Wanted(at, memory.FlaggedFromSite, DateTime.UtcNow)) return;
+        if (flagWaiting is { } waiting && waiting >= at) return;
+        flagWaiting = at;
+    }
+
+    /// <summary>The waiting flag, once the game's calm: the map flag on the step, the tracker's ribbon dropped.</summary>
+    private void FlagFromSite(DateTime now)
+    {
+        if (flagWaiting is not { } at || InGame.Busy || Memory is not { } memory) return;
+        flagWaiting = null;
+        memory.FlaggedFromSite = at;
+        MemoryChanged();
+        FlagNext();
+        if (Config.ShowTracker)
+        {
+            memory.TrackerFolded = false;
+            TrackerDropped = now;
+        }
+    }
+
     /// <summary>Flags the current step's place on the map.</summary>
     public void FlagNext()
     {
@@ -615,6 +647,13 @@ public sealed class Journal : IDisposable
     }
 
     public void MemoryChanged() => memoryDirty = true;
+
+    /// <summary>How long a margin note stays: six seconds, a second more for each ten words past twenty, twelve at most.</summary>
+    public static TimeSpan MarginNoteHold(string words)
+    {
+        var n = words.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        return TimeSpan.FromSeconds(Math.Min(12, 6 + Math.Max(0, n - 20) / 10.0));
+    }
 
     public void AddToast(string title, string? body, string? note, ToastKind kind)
     {
@@ -658,7 +697,8 @@ public sealed class Journal : IDisposable
 
     private void Cards(DateTime now, PlayerNow player)
     {
-        var calm = InGame.Calm;
+        FlagFromSite(now);
+        var calm = CardsMayCome;
 
         // Welcome back: once the story's read (or after a while without it), when calm; it closes as you walk away.
         if (welcomeWaiting is { } recent && calm)
@@ -688,7 +728,8 @@ public sealed class Journal : IDisposable
                 arrivalWaiting = null;
             }
         }
-        if (Arrival is { } shown && now - shown.At > TimeSpan.FromSeconds(14)) Arrival = null;
+        // A margin note holds six seconds (longer when it's long: a second more for each ten words past twenty).
+        if (Arrival is { } shown && now - shown.At > MarginNoteHold(shown.Whisper)) Arrival = null;
         if (!calm) Arrival = null;
 
         if (milestoneWaiting is { } milestone && calm)

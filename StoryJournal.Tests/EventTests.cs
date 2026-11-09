@@ -175,6 +175,21 @@ public class ProgressShapeTests
     }
 
     [Fact]
+    public void TheStepsSpotGoesWithTheCurrentQuestWhenKnown()
+    {
+        var p = Sample();
+        var withSpot = p with { Current = p.Current! with { Spot = MapSpot.Of(11.04f, 15.26f) } };
+        var o = withSpot.ToJson();
+        var spot = o["current"]!["spot"]!.AsObject();
+        Assert.Equal(new[] { "x", "y" }, spot.Select(kv => kv.Key).ToArray());
+        Assert.Equal(11.0, (double)spot["x"]!, 3);
+        Assert.Equal(15.3, (double)spot["y"]!, 3);
+        Assert.Equal("X 11.0 Y 15.3", withSpot.Current!.Spot!.ToString());
+        // Unknown: left out, not null.
+        Assert.False(p.ToJson()["current"]!.AsObject().ContainsKey("spot"));
+    }
+
+    [Fact]
     public void NothingCurrentIsNull()
     {
         var o = (Sample() with { Current = null, NextStop = null, Complete = true }).ToJson();

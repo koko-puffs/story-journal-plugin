@@ -21,20 +21,25 @@
 ## Shared with the site
 
 - The database functions the plugin calls (`sj_plugin_hello`, `sj_plugin_sync`, `sj_plugin_note`,
-  `sj_plugin_theory`, `sj_plugin_theory_answer`) and the photo function (`sj-plugin-photo`) are in
-  kokos-tools: `supabase/migrations/20261108164846_sj_story_journal.sql` and
-  `supabase/functions/sj-plugin-photo/index.ts`. Their arguments, answers, refusal hints (`token`,
-  `off`, `rate`, `size`, `data`, `gone`) and hourly limits are what `Session/SiteSync.cs`,
-  `Core/SiteRpc.cs`, `Core/SyncPolicy.cs` and `Core/PhotoUpload.cs` are written against.
+  `sj_plugin_theory`, `sj_plugin_theory_answer`, and `sj_plugin_poll` for the site's "Flag it in
+  game": `{ flag: ISO | null }`, null when there's no ask in the last 15 minutes, at most 240 an hour)
+  and the photo function (`sj-plugin-photo`) are in kokos-tools: `supabase/migrations/` (the
+  `sj_story_journal` migration and those after it) and `supabase/functions/sj-plugin-photo/index.ts`.
+  Their arguments, answers, refusal hints (`token`, `off`, `rate`, `size`, `data`, `gone`) and hourly
+  limits are what `Session/SiteSync.cs`, `Core/SiteRpc.cs`, `Core/SyncPolicy.cs`, `Core/FlagPoll.cs`
+  and `Core/PhotoUpload.cs` are written against. A theory's answers (`called`, `partly`, `missed`,
+  `changed`, or `sealed` again) are `Core/TheoryAnswers.cs`'s.
 - The shapes both sides read: the events' data (`sj_clean_event` there, `Core/Events.cs` here), the
   session (`sj_put_session`, `Core/Sessions.cs`), the main story's reading (`Progress` in kokos-tools'
-  `design/story-journal/BRIEF.md`, `Core/Progress.cs` here), hello's answer (`Core/Hello.cs`) and the
+  `design/story-journal/BRIEF.md`, `Core/Progress.cs` here, with `current.spot { x, y }`: the step's
+  map coordinates as the game's map shows them), hello's answer (`Core/Hello.cs`) and the
   Codex's file (the game-derived `story/<lang>/codex.json` the site's extractor writes —
   kokos-tools' `scripts/story-extract`, served from `https://assets.kokos-tools.com/story/en/codex.json`
   — and `Core/Codex.cs` here; its gates are in kokos-tools' `design/story-journal/GAMEDATA.md`). Change both together,
   and the tests in `StoryJournal.Tests/EventTests.cs` that check the names.
-- The brief (`design/story-journal/BRIEF.md`) and its mock-up (`index.html`, the "In-game plugin"
-  screens) are how it was meant; the spoiler rule there is the one rule above all.
+- The brief (`design/story-journal/BRIEF.md`) is how it was meant, and the look is the redesign's
+  (`design/story-journal-redesign/pages/plugin.html` and `motion.html`); the spoiler rule is the one
+  rule above all.
 
 ## Building
 

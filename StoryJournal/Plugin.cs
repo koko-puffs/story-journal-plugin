@@ -62,7 +62,7 @@ public sealed class Plugin : IDalamudPlugin
             Services.Commands.AddHandler(Command, new CommandInfo(OnCommand)
             {
                 HelpMessage = "Open the journal. /sj line saves the line on screen, /sj photo takes a photo, /sj note <text> and /sj theory <text> keep your words, "
-                              + "/sj end ends the session, /sj pause and /sj resume, /sj settings.",
+                              + "/sj ask <a name> opens the Codex on it, /sj end ends the evening, /sj pause and /sj resume, /sj settings.",
             });
             Services.Commands.AddHandler(LongCommand, new CommandInfo(OnCommand) { HelpMessage = "The same as /sj.", ShowInHelp = false });
             Services.PluginInterface.UiBuilder.Draw += windows.Draw;
@@ -98,7 +98,11 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "theory":
                 if (rest.Length > 0) journal.SealTheory(rest, 10);
-                else main.ShowTab(MainTab.Theories);
+                else main.ShowNotebook(true);
+                break;
+            case "ask":
+                if (rest.Length > 0) main.ShowCodex(rest);
+                else main.ShowTab(MainTab.Codex);
                 break;
             case "end":
                 journal.EndSession();
@@ -120,7 +124,7 @@ public sealed class Plugin : IDalamudPlugin
                 main.Toggle();
                 break;
             default:
-                Services.Chat.Print("Story Journal: /sj, /sj line, /sj photo, /sj note <text>, /sj theory <text>, /sj end, /sj pause, /sj resume, /sj settings.");
+                Services.Chat.Print("Story Journal: /sj, /sj line, /sj photo, /sj note <text>, /sj theory <text>, /sj ask <name>, /sj end, /sj pause, /sj resume, /sj settings.");
                 break;
         }
     }
@@ -129,6 +133,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         try
         {
+            Ink.Calm = journal.Config.Calm;
             journal.Tick();
         }
         catch (Exception ex)

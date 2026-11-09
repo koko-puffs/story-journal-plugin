@@ -10,8 +10,11 @@ namespace StoryJournal.UI;
 /// <summary>The four buttons of the design system.</summary>
 public enum Btn
 {
-    /// <summary>The one cherry pill on a screen, dark words on it: what goes ahead.</summary>
+    /// <summary>The one filled pill on a screen, the ribbon's deep red with white words: what goes ahead.</summary>
     Primary,
+
+    /// <summary>An outline in candle gold: something you write (Seal as theory, Seal a theory).</summary>
+    Quill,
 
     /// <summary>An outline with the strong edge: everything else you press.</summary>
     Glass,
@@ -182,9 +185,10 @@ public static partial class Kit
         switch (style)
         {
             case Btn.Primary:
-                fill = held ? Palette.AccentDeep : hovered ? Palette.AccentHover : Palette.Accent;
+                // The one filled button: the ribbon's deep red, white words (5.9:1).
+                fill = held ? Palette.RibbonDark : hovered ? Palette.RibbonPress : Palette.RibbonDeep;
                 edge = fill;
-                ink = Palette.OnAccent;
+                ink = Palette.White;
                 break;
             case Btn.Ink:
                 fill = held ? Palette.Soft : hovered ? Palette.White : Palette.Ink;
@@ -206,6 +210,11 @@ public static partial class Kit
                 edge = hovered ? Palette.Accent : Palette.AccentEdge;
                 ink = Palette.AccentSoft;
                 iconInk = Palette.Accent;
+                break;
+            case Btn.Quill:
+                fill = held ? Palette.QuillSoft : hovered ? Palette.WithAlpha(Palette.Quill, 0.06f) : Vector4.Zero;
+                edge = hovered ? Palette.Quill : Palette.QuillLine;
+                ink = Palette.Quill;
                 break;
             default:
                 fill = hovered ? Palette.LineFaint : Palette.ButtonFill;
@@ -497,14 +506,14 @@ public static partial class Kit
     /// </summary>
     /// <param name="flags">ImGui's own, as Password for a secret.</param>
     public static bool Field(string id, Vector2 pos, float width, ref string text, string hint, Icon? icon = null, int maxLength = 128,
-        ImGuiInputTextFlags flags = ImGuiInputTextFlags.None)
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags.None, Face face = Face.Sans, int px = 13, Vector4? ink = null, bool bare = false, float heightCss = 36)
     {
         var dl = Dl;
-        var h = S(36);
+        var h = S(heightCss);
         var r = S(Palette.RadiusMd);
         var max = pos + new Vector2(width, h);
-        dl.AddRectFilled(pos, max, Palette.U32(Palette.Field), r);
-        var x = pos.X + S(12);
+        if (!bare) dl.AddRectFilled(pos, max, Palette.U32(Palette.Field), r);
+        var x = pos.X + (bare ? 0 : S(12));
         if (icon is { } ic)
         {
             Icons.Draw(dl, ic, new Vector2(x, pos.Y + (h - S(16)) / 2), S(16), Palette.Faint);
@@ -512,15 +521,15 @@ public static partial class Kit
         }
         bool changed;
         bool active;
-        using (Txt.Fonts.Push(Face.Sans, 13))
+        using (Txt.Fonts.Push(face, px))
         {
             var fh = ImGui.GetFontSize();
-            ImGui.PushStyleColor(ImGuiCol.Text, Palette.Ink);
+            ImGui.PushStyleColor(ImGuiCol.Text, ink ?? Palette.Ink);
             ImGui.PushStyleColor(ImGuiCol.TextDisabled, Palette.Faint);
             ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(0, (h - fh) / 2));
             var keep = ImGui.GetCursorScreenPos();
             ImGui.SetCursorScreenPos(new Vector2(x, pos.Y));
-            ImGui.SetNextItemWidth(MathF.Max(S(20), max.X - S(14) - x));
+            ImGui.SetNextItemWidth(MathF.Max(S(20), max.X - (bare ? 0 : S(14)) - x));
             if (Blocked) ImGui.BeginDisabled();
             changed = ImGui.InputTextWithHint(id, hint, ref text, maxLength, flags);
             if (Blocked) ImGui.EndDisabled();
@@ -530,7 +539,7 @@ public static partial class Kit
             ImGui.PopStyleColor(2);
             ImGui.SetCursorScreenPos(keep);
             var edge = active ? Palette.Ink : hovered ? Palette.LineHover : Palette.LineStrong;
-            dl.AddRect(pos + new Vector2(0.5f), max - new Vector2(0.5f), Palette.U32(edge), r, ImDrawFlags.None, 1f);
+            if (!bare) dl.AddRect(pos + new Vector2(0.5f), max - new Vector2(0.5f), Palette.U32(edge), r, ImDrawFlags.None, 1f);
         }
         return changed;
     }
@@ -542,7 +551,16 @@ public static partial class Kit
         var h = S(heightCss);
         dl.AddRectFilled(pos, pos + new Vector2(width, h), Palette.U32(Palette.Track), h / 2);
         fraction = float.IsNaN(fraction) ? 0 : Math.Clamp(fraction, 0, 1);
-        if (fraction > 0) dl.AddRectFilled(pos, pos + new Vector2(MathF.Max(h, width * fraction), h), Palette.U32(fill ?? Palette.Accent), h / 2);
+        if (fraction <= 0) return;
+        var end = pos + new Vector2(MathF.Max(h, width * fraction), h);
+        if (fill is { } f) dl.AddRectFilled(pos, end, Palette.U32(f), h / 2);
+        else
+        {
+            // The ribbon's colour, darker where it began (a gradient can't be round: the round ends are drawn over it).
+            dl.AddRectFilled(pos, end, Palette.U32(Palette.Ribbon), h / 2);
+            if (end.X - pos.X > h * 2)
+                dl.AddRectFilledMultiColor(pos + new Vector2(h / 2, 0), end - new Vector2(h / 2, 0), Palette.U32(Palette.RibbonDark), Palette.U32(Palette.Ribbon), Palette.U32(Palette.Ribbon), Palette.U32(Palette.RibbonDark));
+        }
     }
 
     /// <summary>

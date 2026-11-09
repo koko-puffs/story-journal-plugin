@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using Dalamud.Bindings.ImGui;
 using StoryJournal.Core;
 using StoryJournal.Session;
 using static StoryJournal.UI.Theme;
@@ -59,7 +60,9 @@ public sealed partial class MainWindow
                 rows.Add(new CodexRow(name, "place", null, null, region));
             }
         }
-        return codexRows = rows.OrderBy(r => KindOrder(r.Kind)).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        codexRows = rows.OrderBy(r => KindOrder(r.Kind)).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        codexCount = codexRows.Count(r => r.Entry != null);
+        return codexRows;
     }
 
     private static int KindOrder(string kind) => kind switch
@@ -116,16 +119,70 @@ public sealed partial class MainWindow
         _ => source,
     };
 
+    /// <summary>How many entries the Codex shows you now (the rail's count).</summary>
+    private int codexCount;
+
+    /// <summary>
+    /// The Codex: Ask the journal on top (or <c>/sj ask</c>), who and what is near you as chips, the open entry as
+    /// a person's page (what you learned and when, the rest locked until you get there), then everything so far
+    /// by kind.
+    /// </summary>
     private void DrawCodex()
     {
         var story = journal.Story.Now;
         var memory = journal.Memory;
-        Parts.Field("##codex-ask", ref codexAsk, "Ask the journal: a name or a word from the story", 60, Dalamud.Bindings.ImGui.ImGuiInputTextFlags.None, Icon.Search);
-        Kit.Gap(6);
+        var at = Kit.At;
+        var w = Kit.Width;
+        var hint = "/sj ask";
+        var hw = Txt.Measure(hint, Face.Mono, 11).X + S(12);
+        Kit.Field("##codex-ask", at, w, ref codexAsk, "Ask the journal: a name, a place, a word", Icon.Search, 60);
+        if (codexAsk.Length == 0)
+        {
+            var kp = new Vector2(at.X + w - hw - S(10), at.Y + (S(36) - S(20)) / 2);
+            Kit.Dl.AddRect(kp, kp + new Vector2(hw, S(20)), Palette.U32(Palette.LineStrong), S(5));
+            Txt.Line(Kit.Dl, kp + new Vector2(S(6), 0), hint, Face.Mono, 11, Palette.Faint, 20);
+        }
+        Kit.Reserve(at, w, S(36));
+        var rows = CodexRows(story, memory);
+
+        // Near you: the people in the quest, where you are, who you last met.
+        var near = NearYou(story, memory);
+        if (near.Count > 0)
+        {
+            Kit.Gap(12);
+            var row = Kit.At;
+            var x = row.X + Ink.Kicker(Kit.Dl, row + new Vector2(0, S(6)), "Near you") + S(12);
+            var y = row.Y;
+            for (var i = 0; i < near.Count; i++)
+            {
+                var name = near[i];
+                var on = codexOpen != null && string.Equals(codexOpen, name, StringComparison.OrdinalIgnoreCase);
+                var cw = Kit.ChipW(name);
+                if (x + cw > row.X + w && x > row.X + S(90))
+                {
+                    x = row.X + S(78);
+                    y += S(30);
+                }
+                var p = new Vector2(x, y);
+                var (clicked, hovered, _) = Kit.Hit(Ids.Of("##codex-near", i), p, new Vector2(cw, S(24)));
+                Kit.Chip(p, name, on ? ChipKind.Accent : hovered ? ChipKind.Quiet : ChipKind.Plain);
+                if (clicked) Later(() => { codexOpen = on ? null : name; });
+                x += cw + S(6);
+            }
+            Kit.Reserve(row, w, y - row.Y + S(24));
+        }
+
+        // The open entry, as a page.
+        if (codexOpen != null && rows.FirstOrDefault(RowOpen) is { } open)
+        {
+            Kit.Gap(14);
+            DrawPersonPage(open, story);
+        }
+        Kit.Gap(10);
         Parts.Quiet(journal.Prefs.Spoilers == Spoilers.Off
             ? "Spoilers are off (on the site): every entry and every layer shows."
             : "From your Codex · nothing past your last finished quest.");
-        var rows = CodexRows(story, memory);
+
         if (rows.Count == 0)
         {
             Kit.Gap(14);
@@ -138,16 +195,149 @@ public sealed partial class MainWindow
             return;
         }
         string? kind = null;
-        var i = 0;
-        foreach (var row in rows)
+        var n = 0;
+        foreach (var r in rows)
         {
-            if (row.Kind != kind)
+            if (r.Kind != kind)
             {
-                kind = row.Kind;
-                Parts.Heading(KindWord(kind), 16);
+                kind = r.Kind;
+                Kit.Gap(16);
+                Ink.KickerRow(KindWord(kind));
+                Kit.Gap(4);
             }
-            CodexRowDraw(row, i++, story);
+            CodexRowDraw(r, n++);
         }
+    }
+
+    private (int Story, int People, int Places) nearFor;
+    private List<string> nearNames = new();
+
+    /// <summary>Who and what is near: the quest's people, the place you're in, who you last met (each once).</summary>
+    private List<string> NearYou(StoryState? story, CharacterMemory? memory)
+    {
+        var key = (journal.Story.Version, memory?.People.Count ?? 0, memory?.Visited.Count ?? 0);
+        if (key == nearFor) return nearNames;
+        nearFor = key;
+        var list = new List<string>();
+        void Add(string? n)
+        {
+            if (n is { Length: > 0 } && !list.Contains(n, StringComparer.OrdinalIgnoreCase)) list.Add(n);
+        }
+        foreach (var p in story?.People ?? (IReadOnlyList<string>)Array.Empty<string>()) Add(p);
+        Add(story?.Progress.Current?.Place);
+        foreach (var p in (memory?.People ?? new List<MetPerson>()).AsEnumerable().Reverse().Take(3)) Add(p.Name);
+        return nearNames = list.Take(6).ToList();
+    }
+
+    /// <summary>
+    /// An entry's page: its picture's place (an arch with the initial), the kind and subtitle, the name, when it
+    /// entered your story, each thing you learned beside the day you learned it, and the rest locked.
+    /// </summary>
+    private void DrawPersonPage(CodexRow row, StoryState? story)
+    {
+        Kit.BeginPanel("##codex-page", 18, 18, 18, Palette.Leaf, Palette.Line, Palette.RadiusXl);
+        var at = Kit.At;
+        var w = Kit.Width;
+        var dl = Kit.Dl;
+        var narrow = w < S(380);
+        var picW = narrow ? 0 : S(84);
+        if (!narrow)
+        {
+            var pic = at;
+            var ph = S(104);
+            // The arch: a round top over a rounded foot.
+            dl.AddRectFilledMultiColor(pic + new Vector2(0, picW / 2), pic + new Vector2(picW, ph), Palette.U32(Palette.Hex(0x3a2a26)), Palette.U32(Palette.Hex(0x3a2a26)), Palette.U32(Palette.Hex(0x1d1715)), Palette.U32(Palette.Hex(0x1d1715)));
+            dl.AddCircleFilled(pic + new Vector2(picW / 2, picW / 2), picW / 2, Palette.U32(Palette.Hex(0x3a2a26)), 40);
+            var initial = row.Name.Length > 0 ? row.Name[..1].ToUpperInvariant() : "?";
+            var isz = Txt.Measure(initial, Face.DisplayItalic, 22);
+            Txt.Draw(dl, pic + new Vector2((picW - isz.X) / 2, ph - isz.Y - S(10)), initial, Face.DisplayItalic, 22, Palette.Rgba(244, 236, 226, 0.78f));
+        }
+        var x = at.X + (narrow ? 0 : picW + S(18));
+        var tw = w - (x - at.X);
+        Kit.PushBox(x, tw);
+        var kind = row.Kind switch { "person" => "A person", "place" => "A place", "chapter" => "A chapter", "item" => "A key item", _ => "The world" };
+        var sub = row.Entry?.Subtitle;
+        Ink.KickerRow(sub is { Length: > 0 } ? $"{kind} · {Txt.Fit(sub, Face.SansSemibold, 11, tw * 0.6f)}" : kind);
+        Kit.Gap(2);
+        foreach (var line in Lines.Of(row.Name, tw, Face.Display, 19))
+        {
+            var a = Kit.At;
+            Txt.Line(dl, a, line, Face.Display, 19, Palette.Ink, 26);
+            Kit.Reserve(a, tw, S(26));
+        }
+        if (row.Met is { } met)
+        {
+            Kit.Gap(4);
+            var a = Kit.At;
+            var ch = ChapterNumber() is { } n ? $" · ch. {Roman.Of(n)}" : string.Empty;
+            Ink.Stamp(dl, a, $"Met{ch} · {Ui.Ago(met.At)}");
+            Kit.Reserve(a, tw, S(20));
+        }
+        Kit.Gap(10);
+        var shown = 0;
+        var total = 0;
+        if (row.Entry is { } entry)
+        {
+            var codex = journal.Codex.Codex;
+            var spoilers = journal.Prefs.Spoilers;
+            var layers = story != null ? codex.Layers(entry, story.Corpus, story.Seen, story.Gates(spoilers))
+                : spoilers == Spoilers.Off ? entry.Layers.ToList() : new List<CodexLayer>();
+            total = entry.Layers.Count;
+            shown = layers.Count;
+            var day = row.Met is { } m2 ? m2.At.ToLocalTime().ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture) : null;
+            var dayW = day != null ? Txt.Measure("Www 00 Www", Face.Mono, 11).X + S(12) : 0;
+            var first = true;
+            foreach (var l in layers)
+            {
+                var a = Kit.At;
+                if (day != null && first) Txt.Line(dl, a + new Vector2(0, S(2)), day, Face.Mono, 11, Palette.Faint, 18);
+                var h = Lines.Draw(dl, new Vector2(a.X + dayW, a.Y), tw - dayW, l.Text, Face.Read, 13, Palette.Body, 20);
+                if (SourceWords(l.Source) is { } from) h += Lines.Draw(dl, new Vector2(a.X + dayW, a.Y + h), tw - dayW, from, Face.Sans, 11, Palette.Faint, 16);
+                Kit.Reserve(a, tw, h);
+                Kit.Gap(8);
+                first = false;
+            }
+            if (layers.Count == 0) Parts.Quiet("More unlocks as the story goes on.");
+        }
+        else if (row.Met is { } metOnly)
+            Lines.Para($"You met them {Ui.Ago(metOnly.At)}{(metOnly.Place.Length > 0 ? $", in {metOnly.Place}" : string.Empty)}. The Codex has no page for them yet.", Palette.Body, 13, 20, Face.Read);
+        if (total > shown)
+        {
+            Kit.Gap(4);
+            var a = Kit.At;
+            var bh = S(34);
+            Kit.Dashed(a, a + new Vector2(tw, bh), S(10), Palette.LineStrong, 1f);
+            Icons.Draw(dl, Icon.Lock, a + new Vector2(S(12), (bh - S(13)) / 2), S(13), Palette.Faint);
+            var who = row.Kind == "person" ? "Their page" : "Its page";
+            Txt.Line(dl, a + new Vector2(S(32), 0), Txt.Fit($"{who} fills in as you play: more of it the further you get.", Face.Sans, 12, tw - S(44)), Face.Sans, 12, Palette.Muted, 34);
+            Kit.Reserve(a, tw, bh);
+        }
+        var notes = (journal.Sync.Hello?.Notes ?? Array.Empty<SiteNote>())
+            .Where(nn => string.Equals(nn.Subject, row.Name, StringComparison.OrdinalIgnoreCase)
+                         || row.Entry?.Names.Any(x2 => string.Equals(x2, nn.Subject, StringComparison.OrdinalIgnoreCase)) == true).ToList();
+        if (notes.Count > 0)
+        {
+            Kit.Gap(10);
+            Ink.KickerRow("You wrote", Palette.Quill);
+            Kit.Gap(2);
+            foreach (var nn in notes.Take(2)) Ruled(() => Lines.Para(nn.Body, Palette.QuillInk, 13, 19, Face.ReadItalic), true);
+        }
+        Kit.Gap(10);
+        var b = Parts.Buttons("##codex-page-b", new (string, Btn, Icon?)[]
+        {
+            ($"A note about {Txt.Fit(row.Name, Face.SansMedium, 13, S(140))}", Btn.Quill, Icon.Feather),
+            ("→On the site", Btn.Quiet, Icon.ExternalLink),
+        }, BtnSize.Tiny);
+        if (b == 0)
+        {
+            var name = row.Entry?.Aliases.FirstOrDefault() ?? row.Name;
+            Later(() => OpenNote?.Invoke(name));
+        }
+        else if (b == 1) Dalamud.Utility.Util.OpenLink(row.Entry != null ? SiteLink.CodexEntryUrl(row.Entry.Key) : SiteLink.SiteUrl + "/codex");
+        Kit.PopBox();
+        var end = ImGui.GetCursorScreenPos().Y;
+        Kit.Reserve(at, w, MathF.Max(end - at.Y, narrow ? 0 : S(104)));
+        Kit.EndPanel();
     }
 
     private (string? Open, List<CodexRow>? Rows) openFor;
@@ -167,25 +357,26 @@ public sealed partial class MainWindow
         return openRows.Contains(row);
     }
 
-    private void CodexRowDraw(CodexRow row, int index, StoryState? story)
+    /// <summary>A row of the list: its kind's picture, the name, when you met them or where it is; pressed, it opens as the page above.</summary>
+    private void CodexRowDraw(CodexRow row, int index)
     {
         var open = RowOpen(row);
         var at = Kit.At;
         var w = Kit.Width;
         var h = S(34);
         // Thousands of rows with spoilers off: those out of sight only take their space.
-        if (!open && !Dalamud.Bindings.ImGui.ImGui.IsRectVisible(at, at + new Vector2(w, h)))
+        if (!ImGui.IsRectVisible(at, at + new Vector2(w, h)))
         {
             Kit.Reserve(at, w, h);
             return;
         }
         var (clicked, hovered, _) = Kit.Hit(Ids.Of("##codex-row", index), at, new Vector2(w, h));
         if (hovered || open) Kit.Dl.AddRectFilled(at, at + new Vector2(w, h), Palette.U32(open ? Palette.AccentRow : Palette.RowHover), S(10));
-        var icon = KindIcon(row.Kind);
-        Icons.Draw(Kit.Dl, icon, at + new Vector2(S(10), (h - S(14)) / 2), S(14), row.Entry != null ? Palette.Accent : Palette.Muted);
+        if (open) Kit.Dl.AddRectFilled(at + new Vector2(0, S(8)), at + new Vector2(S(3), h - S(8)), Palette.U32(Palette.Ribbon), S(2));
+        Icons.Draw(Kit.Dl, KindIcon(row.Kind), at + new Vector2(S(10), (h - S(14)) / 2), S(14), row.Entry != null ? Palette.Ribbon : Palette.Muted);
         var note = row.Met != null ? $"met {Ui.Ago(row.Met.At)}" : row.Place;
         var nw = note != null ? Txt.Measure(note, Face.Sans, 12).X : 0;
-        Txt.Line(Kit.Dl, at + new Vector2(S(32), 0), Txt.Fit(row.Name, Face.SansMedium, 14, w - S(44) - nw), Face.SansMedium, 14, Palette.Ink, 34);
+        Txt.Line(Kit.Dl, at + new Vector2(S(32), 0), Txt.Fit(row.Name, Face.Display, 15, w - S(44) - nw), Face.Display, 15, Palette.Ink, 34);
         if (note != null) Txt.Line(Kit.Dl, new Vector2(at.X + w - S(10) - nw, at.Y), note, Face.Sans, 12, Palette.Muted, 34);
         Kit.Reserve(at, w, h);
         if (clicked)
@@ -193,57 +384,5 @@ public sealed partial class MainWindow
             var name = row.Name;
             Later(() => codexOpen = open ? null : name);
         }
-        if (!open) return;
-
-        // The entry, as far as you've seen.
-        Kit.PushBox(at.X + S(32), w - S(42));
-        Kit.Gap(4);
-        if (row.Entry is { } entry)
-        {
-            var codex = journal.Codex.Codex;
-            var spoilers = journal.Prefs.Spoilers;
-            var layers = story != null ? codex.Layers(entry, story.Corpus, story.Seen, story.Gates(spoilers))
-                : spoilers == Spoilers.Off ? entry.Layers.ToList() : new List<CodexLayer>();
-            if (entry.Subtitle is { Length: > 0 } subtitle)
-            {
-                Parts.Quiet(subtitle);
-                Kit.Gap(4);
-            }
-            if (layers.Count == 0) Parts.Quiet("More unlocks as the story goes on.");
-            foreach (var l in layers)
-            {
-                Parts.Story(l.Text);
-                if (SourceWords(l.Source) is { } from) Parts.Quiet(from);
-                Kit.Gap(6);
-            }
-            if (entry.Aliases.Count > 0) Parts.Quiet("Also: " + string.Join(", ", entry.Aliases));
-        }
-        if (row.Met is { } met)
-        {
-            Kit.Gap(4);
-            Parts.Quiet($"You met them {Ui.Ago(met.At)}{(met.Place.Length > 0 ? $", in {met.Place}" : string.Empty)}.");
-        }
-        var notes = (journal.Sync.Hello?.Notes ?? Array.Empty<SiteNote>())
-            .Where(n => string.Equals(n.Subject, row.Name, StringComparison.OrdinalIgnoreCase)
-                        || row.Entry?.Names.Any(x => string.Equals(x, n.Subject, StringComparison.OrdinalIgnoreCase)) == true).ToList();
-        foreach (var n in notes)
-        {
-            Kit.Gap(6);
-            Parts.Quote($"“{n.Body}”", n.At is { } nat ? $"your note, {Ui.Ago(nat)}" : "your note");
-        }
-        Kit.Gap(8);
-        var b = Parts.Buttons(Ids.Of("##codex-b", index), new (string, Btn, Icon?)[]
-        {
-            ($"A note about {Txt.Fit(row.Name, Face.SansMedium, 13, S(160))}", Btn.Glass, Icon.MessageSquare),
-            ("→On the site", Btn.Quiet, Icon.ExternalLink),
-        }, BtnSize.Tiny);
-        if (b == 0)
-        {
-            var name = row.Entry?.Aliases.FirstOrDefault() ?? row.Name;
-            Later(() => OpenNote?.Invoke(name));
-        }
-        else if (b == 1) Dalamud.Utility.Util.OpenLink(row.Entry != null ? SiteLink.CodexEntryUrl(row.Entry.Key) : SiteLink.SiteUrl + "/codex");
-        Kit.Gap(10);
-        Kit.PopBox();
     }
 }

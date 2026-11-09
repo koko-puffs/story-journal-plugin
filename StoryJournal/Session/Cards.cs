@@ -20,6 +20,12 @@ public enum ToastKind
 
     /// <summary>Something went wrong.</summary>
     Bad,
+
+    /// <summary>A photo taken: its tile is the camera.</summary>
+    Photo,
+
+    /// <summary>A theory sealed or answered: its tile is the wax seal.</summary>
+    Seal,
 }
 
 /// <summary>The Welcome back card's contents, made once when it opens.</summary>

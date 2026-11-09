@@ -8,7 +8,7 @@ using Dalamud.Interface.ManagedFontAtlas;
 
 namespace StoryJournal.UI;
 
-/// <summary>The site's faces, by weight: Geist, as kokos-tools uses it.</summary>
+/// <summary>The faces, by job: Geist for controls (as kokos-tools), Fraunces to name things, Literata to read.</summary>
 public enum Face
 {
     /// <summary>Geist 400: what you read.</summary>
@@ -22,13 +22,26 @@ public enum Face
 
     /// <summary>Geist Mono 400: every number (counts, levels, times), so they line up.</summary>
     Mono,
+
+    /// <summary>Fraunces 600 (opsz 24, soft 60): what a thing is called (titles, the greeting, big numbers).</summary>
+    Display,
+
+    /// <summary>Fraunces 600 italic: the second half of a greeting, a chapter's name in its seal's card.</summary>
+    DisplayItalic,
+
+    /// <summary>Literata 400: anything read for more than a line (why you're here, previously, the Codex).</summary>
+    Read,
+
+    /// <summary>Literata 400 italic: your own words (notes, theories, an evening's title), in candle gold.</summary>
+    ReadItalic,
 }
 
 /// <summary>
-/// The faces at the sizes the window uses, loaded through Dalamud's font atlas (so they follow
-/// Dalamud's global scale and rebuild with it): Geist 14/13/12/11 (400), 14/13/12 (500), 30/22/18/16/15/14/13
-/// (600); Geist Mono 22/15/13/12/11 (every number: counts, levels, times). Under the SIL Open Font License 1.1, unmodified, with its licence
-/// (Resources/Fonts).
+/// The faces at the sizes the windows use, loaded through Dalamud's font atlas (so they follow
+/// Dalamud's global scale and rebuild with it): Geist 14–10 (400), 14/13/12 (500), 30–10 (600); Geist Mono
+/// 22/15/13/12/11 (every number); Fraunces SemiBold 28–13 and its italic (static instances at opsz 72, soft
+/// 60); Literata Regular 16–12 and its italic (opsz 14). All under the SIL Open Font License 1.1, unmodified,
+/// with their licences (Resources/Fonts).
 ///
 /// Sizes are CSS sizes (the em). ImGui sizes a font by its line (ascent to descent), so each face is
 /// loaded at its em times its line ratio, and 14px Geist here is as tall as 14px in the browser.
@@ -41,12 +54,19 @@ public sealed class Fonts : IDisposable
     /// <summary>(hhea ascent − descent) / em, read from the font files.</summary>
     private const float GeistLine = 1.3f;
 
+    private const float FrauncesLine = 1.233f;
+    private const float LiterataLine = 1.485f;
+
     private static readonly (Face Face, int Px)[] Wanted =
     {
-        (Face.Sans, 14), (Face.Sans, 13), (Face.Sans, 12), (Face.Sans, 11),
+        (Face.Sans, 14), (Face.Sans, 13), (Face.Sans, 12), (Face.Sans, 11), (Face.Sans, 10),
         (Face.SansMedium, 14), (Face.SansMedium, 13), (Face.SansMedium, 12),
-        (Face.SansSemibold, 30), (Face.SansSemibold, 22), (Face.SansSemibold, 18), (Face.SansSemibold, 16), (Face.SansSemibold, 15), (Face.SansSemibold, 14), (Face.SansSemibold, 13),
+        (Face.SansSemibold, 30), (Face.SansSemibold, 22), (Face.SansSemibold, 18), (Face.SansSemibold, 16), (Face.SansSemibold, 15), (Face.SansSemibold, 14), (Face.SansSemibold, 13), (Face.SansSemibold, 12), (Face.SansSemibold, 11), (Face.SansSemibold, 10),
         (Face.Mono, 22), (Face.Mono, 15), (Face.Mono, 13), (Face.Mono, 12), (Face.Mono, 11),
+        (Face.Display, 28), (Face.Display, 22), (Face.Display, 19), (Face.Display, 17), (Face.Display, 15), (Face.Display, 13),
+        (Face.DisplayItalic, 22), (Face.DisplayItalic, 17), (Face.DisplayItalic, 15),
+        (Face.Read, 16), (Face.Read, 15), (Face.Read, 14), (Face.Read, 13), (Face.Read, 12),
+        (Face.ReadItalic, 15), (Face.ReadItalic, 14), (Face.ReadItalic, 13), (Face.ReadItalic, 12),
     };
 
     private readonly Dictionary<(Face, int), IFontHandle> handles = new();
@@ -68,11 +88,21 @@ public sealed class Fonts : IDisposable
                 Face.Sans => "Geist-Regular.ttf",
                 Face.SansMedium => "Geist-Medium.ttf",
                 Face.SansSemibold => "Geist-SemiBold.ttf",
+                Face.Display => "Fraunces-SemiBold.ttf",
+                Face.DisplayItalic => "Fraunces-SemiBoldItalic.ttf",
+                Face.Read => "Literata-Regular.ttf",
+                Face.ReadItalic => "Literata-Italic.ttf",
                 _ => "GeistMono-Regular.ttf",
+            };
+            var line = face switch
+            {
+                Face.Display or Face.DisplayItalic => FrauncesLine,
+                Face.Read or Face.ReadItalic => LiterataLine,
+                _ => GeistLine,
             };
             var dalamudFont = japanese && face is not Face.Mono;
             // The mono only shows times and counts: it needs no other language's letters.
-            var handle = Make(atlas, file, px * GeistLine, dalamudFont, face is not Face.Mono);
+            var handle = Make(atlas, file, px * line, dalamudFont, face is not Face.Mono);
             // Rebuilt (Dalamud's font settings, the scale): what was measured with the old one is stale.
             // This can come from the font build's own thread, hence only a counter.
             handle.ImFontChanged += OnFontChanged;

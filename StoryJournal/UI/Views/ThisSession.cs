@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using StoryJournal.Core;
@@ -9,95 +10,191 @@ namespace StoryJournal.UI;
 
 public sealed partial class MainWindow
 {
+    /// <summary>
+    /// This evening: its numbers (played, quests, how far it moved you, photos), then what happened on the red
+    /// thread, newest on top (the newest knot filled), and whether the site has it. Saving a line and taking a
+    /// photo are in its head.
+    /// </summary>
     private void DrawSession()
     {
         var session = journal.Session;
         if (session == null)
         {
-            Empty("##ses-none", Icon.Clock, "No session under way", journal.Player == null
-                ? "A session starts when you log in and play; it ends at logout, /sj end, or after a while with nothing happening."
+            PlaceHead("This evening", "No evening under way");
+            Kit.Gap(12);
+            Empty("##ses-none", Icon.Clock, "It starts when you play", journal.Player == null
+                ? "An evening starts when you log in and play; it ends at logout, /sj end, or after a while with nothing happening."
                 : "One starts with the next thing that happens (move, take a quest). It ends at logout, /sj end, or after a while with nothing happening.");
+            Kit.Gap(14);
             DrawQueueLine();
             return;
         }
         var events = journal.SessionEvents.Where(e => e.Session == session.Id).OrderByDescending(e => e.At).ToList();
-        // Counted as it happened, kept with the session (a reload leaves only the events still queued here).
         var numbers = session.Tally.Numbers;
-        Kit.Facts("##ses-facts", new Kit.Fact[]
-        {
-            new("Playing", Ui.Duration(DateTime.UtcNow - session.StartedAt), $"since {Ui.Clock(session.StartedAt)}"),
-            new("Quests", Ui.Count(numbers.Quests), numbers.Msq > 0 ? $"{numbers.Msq} main" : null),
-            new("Cutscenes", Ui.Count(numbers.Cutscenes)),
-            new("Photos", Ui.Count(numbers.Photos)),
-        });
+
+        // The head: the day and since when, the title, the line and the photo.
+        var head = Kit.At;
+        var w = Kit.Width;
+        var local = session.StartedAt.ToLocalTime();
+        Ink.Kicker(Kit.Dl, head, $"{local.ToString("dddd d MMM", CultureInfo.InvariantCulture)} · since {local.ToString("HH:mm", CultureInfo.InvariantCulture)}");
+        Txt.Line(Kit.Dl, head + new Vector2(0, S(18)), "The evening so far", Face.Display, 19, Palette.Ink, 26);
+        var ib = S(32);
+        if (Kit.IconButton("##ses-line", new Vector2(head.X + w - ib * 2 - S(6), head.Y + S(6)), Icon.Quote, "Save the line on screen", 32)) Later(journal.SaveLine);
+        if (Kit.IconButton("##ses-photo", new Vector2(head.X + w - ib, head.Y + S(6)), Icon.Camera, "Take a photo (the HUD hidden)", 32)) Later(() => journal.TakePhoto());
+        Kit.Reserve(head, w, S(44));
         Kit.Gap(12);
-        var b = Parts.Buttons("##ses-b", new (string, Btn, Icon?)[]
+
+        // The numbers, four tiles.
+        var moved = journal.Story.Now?.Progress.ExpansionNow is { } ex && session.Tally.PercentAtStart is { } start
+            ? Progress.Percent(ex.Done, ex.Total) - start
+            : (int?)null;
+        Tiles("##ses-tiles", new (string, string)[]
         {
-            ("Save the line", Btn.Glass, Icon.Quote),
-            ("Take a photo", Btn.Glass, Icon.Camera),
-            ("→End session…", Btn.Quiet, null),
+            (Ui.Duration(DateTime.UtcNow - session.StartedAt), "played"),
+            (Ui.Count(numbers.Quests), numbers.Msq > 0 ? $"quests · {numbers.Msq} main" : "quests"),
+            (moved is { } m ? $"+{Math.Max(0, m)}%" : "—", "of the story"),
+            (Ui.Count(numbers.Photos), numbers.Photos == 1 ? "photo" : "photos"),
         });
-        if (b == 0) Later(journal.SaveLine);
-        else if (b == 1) Later(() => journal.TakePhoto());
-        else if (b == 2) Later(journal.EndSession);
         if (journal.Config.Paused)
         {
             Kit.Gap(10);
             Lines.Para("Recording is paused: nothing new is written until /sj resume (or Settings).", Palette.Warn, 13, 19);
         }
 
-        Parts.Heading("WHAT HAPPENED", 18);
+        // The red thread.
+        Kit.Gap(16);
         if (events.Count == 0) Parts.Quiet("Nothing yet. Quests, cutscenes, places, duties, levels and people met are written here as they happen.");
-        foreach (var e in events.Take(80)) EventRow(e);
-        if (events.Count > 80) Parts.Quiet($"…and {events.Count - 80} more, on the site.");
-        Kit.Gap(10);
+        else DrawThread(events);
+        if (events.Count > 60) Parts.Quiet($"…and {events.Count - 60} more, on the site.");
+
+        Kit.Gap(14);
+        var line = Kit.At;
+        Kit.Divider(line.X, line.X + w, line.Y);
+        Kit.Reserve(line, w, 1);
+        Kit.Gap(12);
+        var foot = Kit.At;
+        var endW = Kit.ButtonWidth("End the evening", BtnSize.Sm);
+        Kit.PushBox(foot.X, w - endW - S(12));
         DrawQueueLine();
+        Kit.PopBox();
+        var after = Kit.At.Y;
+        if (Kit.Button("##ses-end", new Vector2(foot.X + w - endW, foot.Y), "End the evening", Btn.Glass, BtnSize.Sm)) Later(journal.EndSession);
+        Kit.Reserve(foot, w, MathF.Max(after - foot.Y, Kit.ButtonHeight(BtnSize.Sm)));
     }
 
-    private static void EventRow(JournalEvent e)
+    /// <summary>A row of number tiles: a figure in Fraunces over its word.</summary>
+    private static void Tiles(string id, (string Figure, string Word)[] tiles)
     {
-        var (icon, words, note) = Describe(e);
         var at = Kit.At;
         var w = Kit.Width;
-        var time = Ui.Clock(e.At);
-        var tw = Txt.Measure(time, Face.Mono, 11).X;
-        Txt.Line(Kit.Dl, at, time, Face.Mono, 11, Palette.Dim, 20);
-        var x = at.X + MathF.Max(tw, S(40)) + S(10);
-        Icons.Draw(Kit.Dl, icon, new Vector2(x, at.Y + S(3)), S(14), e.Kind == EventKind.Line ? Palette.Quill : Palette.Accent);
-        x += S(22);
-        var h = Lines.Draw(Kit.Dl, new Vector2(x, at.Y), w - (x - at.X), words, Face.Sans, 13, Palette.Soft, 20);
-        if (note != null) h += Lines.Draw(Kit.Dl, new Vector2(x, at.Y + h), w - (x - at.X), note, Face.Sans, 12, e.Kind == EventKind.Line ? Palette.Quill : Palette.Muted, 18);
-        Kit.Reserve(at, w, MathF.Max(S(20), h));
-        Kit.Gap(6);
+        var gap = S(8);
+        var cols = w < S(360) ? 2 : tiles.Length;
+        var rows = (tiles.Length + cols - 1) / cols;
+        var tw = (w - gap * (cols - 1)) / cols;
+        var th = S(62);
+        var dl = Kit.Dl;
+        for (var i = 0; i < tiles.Length; i++)
+        {
+            var p = at + new Vector2((i % cols) * (tw + gap), (i / cols) * (th + gap));
+            dl.AddRectFilled(p, p + new Vector2(tw, th), Palette.U32(Palette.Ground2), S(12));
+            dl.AddRect(p + new Vector2(0.5f), p + new Vector2(tw, th) - new Vector2(0.5f), Palette.U32(Palette.Line), S(12));
+            Txt.Line(dl, p + new Vector2(S(12), S(10)), Txt.Fit(tiles[i].Figure, Face.Display, 19, tw - S(24)), Face.Display, 19, Palette.Ink, 24);
+            Txt.Line(dl, p + new Vector2(S(12), S(36)), Txt.Fit(tiles[i].Word, Face.Sans, 11, tw - S(24)), Face.Sans, 11, Palette.Muted, 16);
+        }
+        Kit.Reserve(at, w, rows * th + (rows - 1) * gap);
     }
 
-    /// <summary>An event in words, as the session's list shows it.</summary>
-    private static (Icon Icon, string Words, string? Note) Describe(JournalEvent e)
+    /// <summary>What happened, newest first, on the red thread: a time, a knot, the words (a saved line in Literata).</summary>
+    private void DrawThread(System.Collections.Generic.List<JournalEvent> events)
+    {
+        var top = Kit.At;
+        var w = Kit.Width;
+        var dl = Kit.Dl;
+        var timeW = S(44);
+        var knotX = top.X + timeW + S(10);
+        var textX = knotX + S(18);
+        var i = 0;
+        var lastY = top.Y;
+        foreach (var e in events.Take(60))
+        {
+            var at = Kit.At;
+            var (words, quote, stamp) = Story(e);
+            Txt.Line(dl, at, Ui.Clock(e.At), Face.Mono, 11, Palette.Faint, 20);
+            var h = Lines.Draw(dl, new Vector2(textX, at.Y), w - (textX - at.X) - (stamp != null ? Ink.StampWidth(stamp) + S(8) : 0), words, Face.Sans, 13, Palette.Body, 20);
+            if (stamp != null)
+                Ink.Stamp(dl, new Vector2(textX + MathF.Min(Txt.Measure(words, Face.Sans, 13).X + S(8), w - (textX - at.X) - Ink.StampWidth(stamp)), at.Y), stamp);
+            if (quote != null)
+            {
+                h += S(4);
+                h += Lines.Draw(dl, new Vector2(textX, at.Y + h), w - (textX - at.X), $"“{quote}”", Face.ReadItalic, 13, Palette.QuillInk, 19);
+            }
+            if (e.Kind == EventKind.Photo)
+            {
+                // The photo's place in the thread (the picture itself is on the site once it's sent).
+                var p = new Vector2(textX, at.Y + h + S(6));
+                var size = new Vector2(S(120), S(64));
+                dl.AddRectFilledMultiColor(p, p + size, Palette.U32(Palette.Hex(0xb8c4d8)), Palette.U32(Palette.Hex(0x9fb0c8)), Palette.U32(Palette.Hex(0x2b3346)), Palette.U32(Palette.Hex(0x3a4258)));
+                dl.AddCircleFilled(p + new Vector2(size.X * 0.66f, size.Y * 0.32f), S(16), Palette.U32(Palette.Rgba(240, 243, 250, 0.45f)), 24);
+                dl.AddRect(p, p + size, Palette.U32(Palette.Line), S(8));
+                h += size.Y + S(6);
+            }
+            lastY = at.Y + S(10);
+            Kit.Reserve(at, w, MathF.Max(S(20), h));
+            Kit.Gap(12);
+            i++;
+        }
+        // The thread, then the knots over it (the rows are laid first, so the thread's length is known).
+        var end = Kit.At.Y;
+        Ink.Thread(dl, new Vector2(knotX, top.Y + S(10)), MathF.Max(lastY + S(30), end - S(4)));
+        // Knots over the thread.
+        RedrawKnots(events, top, knotX, w, textX);
+    }
+
+    /// <summary>The knots, over the thread, at each row's height (worked out as the rows were).</summary>
+    private void RedrawKnots(System.Collections.Generic.List<JournalEvent> events, Vector2 top, float knotX, float w, float textX)
+    {
+        var dl = Kit.Dl;
+        var y = top.Y;
+        var i = 0;
+        foreach (var e in events.Take(60))
+        {
+            var (words, quote, stamp) = Story(e);
+            var h = Lines.Height(words, w - (textX - top.X) - (stamp != null ? Ink.StampWidth(stamp) + S(8) : 0), Face.Sans, 13, 20);
+            if (quote != null) h += S(4) + Lines.Height($"“{quote}”", w - (textX - top.X), Face.ReadItalic, 13, 19);
+            if (e.Kind == EventKind.Photo) h += S(64) + S(12);
+            Ink.Knot(dl, new Vector2(knotX, y + S(10)), i == 0, 1f);
+            y += MathF.Max(S(20), h) + S(12);
+            i++;
+        }
+    }
+
+    /// <summary>An event as the thread tells it: its words, a saved line's words, a stamp (someone met: the Codex grew).</summary>
+    private static (string Words, string? Quote, string? Stamp) Story(JournalEvent e)
     {
         var d = e.Data;
         string T(string k) => Json.Str(d[k]) ?? string.Empty;
         switch (e.Kind)
         {
             case EventKind.Quest:
-                var chapter = Json.Bool(d["chapterDone"]) ? $"Chapter closed: {T("chapter")}" : null;
-                return (Icon.BookOpen, $"Finished {T("name")}", chapter ?? (Json.Bool(d["msq"]) ? "main scenario" : null));
+                return ($"Finished {T("name")}" + (Json.Bool(d["chapterDone"]) ? $" · the chapter {T("chapter")} closes" : string.Empty), null, null);
             case EventKind.Accept:
-                return (Icon.Bookmark, $"Took {T("name")}", Json.Bool(d["msq"]) ? "main scenario" : null);
+                return ($"Took {T("name")}", null, null);
             case EventKind.Cutscene:
-                return (Icon.Eye, $"A cutscene{(T("place").Length > 0 ? " in " + T("place") : string.Empty)}", Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"]))));
+                return ($"A cutscene{(T("place").Length > 0 ? " in " + T("place") : string.Empty)} · {Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"])))}", null, null);
             case EventKind.Zone:
-                return (Icon.MapPin, $"Reached {T("name")}", Json.Bool(d["first"]) ? "first visit" : T("region"));
+                return ($"Reached {T("name")}" + (Json.Bool(d["first"]) ? ", for the first time" : string.Empty), null, null);
             case EventKind.Duty:
-                var verb = Json.Bool(d["cleared"]) ? "Cleared" : "Left";
-                return (Icon.Swords, $"{verb} {T("name")}", $"{T("type")} · {Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"])))}");
+                return ($"{(Json.Bool(d["cleared"]) ? "Cleared" : "Left")} {T("name")} · {Ui.Duration(TimeSpan.FromSeconds(Json.Int(d["seconds"])))}", null, null);
             case EventKind.Level:
-                return (Icon.Sparkles, $"Level {Json.Int(d["level"])} {T("job")}", null);
+                return ($"Level {Json.Int(d["level"])} {T("job")}", null, null);
             case EventKind.Person:
-                return (Icon.Users, $"Met {T("name")}", T("place").Length > 0 ? T("place") : null);
+                return ($"Met {T("name")}", null, "Codex +1");
             case EventKind.Line:
-                return (Icon.Quote, $"Saved a line of {(T("speaker").Length > 0 ? T("speaker") : "someone")}", $"“{T("text")}”");
+                return ($"Saved a line of {(T("speaker").Length > 0 ? T("speaker") : "someone")}'s", T("text"), null);
+            case EventKind.Photo:
+                return ("A photo" + (T("caption").Length > 0 ? $": {T("caption")}" : string.Empty), null, null);
             default:
-                return (Icon.Info, e.Kind, null);
+                return (e.Kind, null, null);
         }
     }
 
@@ -107,9 +204,11 @@ public sealed partial class MainWindow
         var q = journal.Queue;
         var waiting = q.Count;
         var photos = q.PhotoCount;
+        var at = Kit.At;
         string words;
-        if (waiting == 0 && photos == 0)
-            words = journal.Sync.SyncedAt is { } at ? $"Everything's on the site (last sent {Ui.Ago(at)})." : "Nothing waiting for the site.";
+        var ok = waiting == 0 && photos == 0;
+        if (ok)
+            words = journal.Sync.SyncedAt is { } synced ? $"Everything's on the site (sent {Ui.Ago(synced)})." : "Nothing waiting for the site.";
         else
         {
             var parts = new System.Collections.Generic.List<string>();
@@ -117,7 +216,9 @@ public sealed partial class MainWindow
             if (photos > 0) parts.Add(Ui.Plural(photos, "photo", "photos"));
             words = $"{string.Join(" and ", parts)} waiting to upload · kept on this PC until the site has them.";
         }
-        Parts.Quiet(words);
+        Icons.Draw(Kit.Dl, ok ? Icon.Check : Icon.Clock, at + new Vector2(0, S(3)), S(13), ok ? Palette.Good : Palette.Muted);
+        var h = Lines.Draw(Kit.Dl, new Vector2(at.X + S(20), at.Y), Kit.Width - S(20), words, Face.Sans, 12, Palette.Muted, 18);
+        Kit.Reserve(at, Kit.Width, h);
         if (journal.Sync.Problem is { } problem) Parts.Quiet(problem, Palette.Warn);
     }
 }

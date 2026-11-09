@@ -34,6 +34,9 @@ public sealed class SealedTheory
 
     public bool Answered { get; set; }
 
+    /// <summary>How it was settled here (TheoryAnswers: called, partly, missed, changed), empty while sealed.</summary>
+    public string Status { get; set; } = string.Empty;
+
     /// <summary>The site has it.</summary>
     public bool Sent { get; set; }
 
@@ -111,6 +114,12 @@ public sealed class CharacterMemory
 
     /// <summary>When the Welcome back card last showed (once a login).</summary>
     public DateTime? WelcomedAt { get; set; }
+
+    /// <summary>The site's last "Flag it in game" this character acted on (FlagPoll), so it isn't done twice.</summary>
+    public DateTime? FlaggedFromSite { get; set; }
+
+    /// <summary>The tracker's ribbon folded to its tab (its chevron), kept across logins.</summary>
+    public bool TrackerFolded { get; set; }
 }
 
 /// <summary>The plugin's settings, kept by Dalamud with the plugin's config.</summary>
@@ -166,6 +175,15 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>A short line in chat when something's saved, a session starts or the link changes.</summary>
     public bool ChatMessages { get; set; } = true;
+
+    /// <summary>Quiet times: while you're in a party, everything that would come to you waits until you're on your own.</summary>
+    public bool HoldInParty { get; set; }
+
+    /// <summary>Where the tracker's ribbon hangs along the top of the screen (0 left, 1 right; dragged by its head).</summary>
+    public float TrackerAt { get; set; } = 0.5f;
+
+    /// <summary>Calm: nothing moves (windows and cards simply appear), as the system's reduced motion does.</summary>
+    public bool Calm { get; set; }
 
     /// <summary>Arrival cards and Who's that? are quieter than the site's setting says (never louder): -1 the site's, else a Whispers value.</summary>
     public int WhispersHere { get; set; } = -1;
