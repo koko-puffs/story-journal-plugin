@@ -630,6 +630,7 @@ until it's made: until then the download fails, so release before telling anyone
   is gone.
 
 ### 0.2.3
+
 - The rail's sliding red bar is gone (it lagged behind and got dragged when the window moved): the
   open place is raised, its picture red.
 
