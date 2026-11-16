@@ -535,7 +535,7 @@ The **pace lock**: hello's partners with your lock on (`lock`); you're warned wh
   met (on); a new evening after N minutes (30); Pause recording.
 - **Commands**: `/sj line`, `/sj photo`, `/sj note`, for a macro on the hotbar (or a key the player
   binds to it in the game). The plugin has no keys of its own (it had F11, F12 and Ctrl+J until
-  0.2.3, which took keys the game uses and kept them from it); a key set before is forgotten.
+  0.2.4, which took keys the game uses and kept them from it); a key set before is forgotten.
 - **Offline**: what's waiting, what was set aside, the Codex's state; Send now, Fetch the Codex again.
 
 Per character (`CharacterMemory`, by key): the zones visited since the journal began, the people met
@@ -622,12 +622,14 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## Release notes
 
-### 0.2.3 (unreleased)
+### 0.2.4 (unreleased)
 
 - No keys of its own any more: F11 (save the line), F12 (photo) and Ctrl+J (quick note) took keys
   the game uses, and kept them from it. The commands stay (`/sj line`, `/sj photo`, `/sj note`):
   put one in a macro for the hotbar. Settings' Keys box is now Commands; the quick note's key chip
   is gone.
+
+### 0.2.3
 - The rail's sliding red bar is gone (it lagged behind and got dragged when the window moved): the
   open place is raised, its picture red.
 
