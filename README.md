@@ -16,8 +16,10 @@ a journal of your journey through the main story, written as you play.
   doing what you're doing; a ribbon tracker hanging from the top of the screen with what's next.
 - **Lets the world talk back**: a sentence about a place the first time you reach it, a reminder of
   who someone is when you target them, a Codex that grows with you.
-- **Keeps your moments**: save the line on screen (F11), take a photo without the HUD (F12), jot a
-  note (Ctrl+J), seal a theory under wax and settle it later, give each evening a title and a mood.
+- **Keeps your moments**: save the line on screen (`/sj line`), take a photo without the HUD
+  (`/sj photo`), jot a note (`/sj note`), seal a theory under wax and settle it later, give each
+  evening a title and a mood. It has no keys of its own (they'd take ones the game uses): put a
+  command in a macro to have it on your hotbar.
 
 It looks like the site's Story Journal ("Ink & Ribbon"): warm ink, paper words, a cherry-red ribbon
 where you are. Calm, in Settings, keeps it all still.

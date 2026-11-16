@@ -597,49 +597,6 @@ public class CodexV2Tests
         Console.WriteLine($"5,000 entries ({bytes.Length / 1024} KB): read {read.TotalMilliseconds:0} ms, seen {matched.TotalMilliseconds:0} ms, listed {listed.TotalMilliseconds:0} ms ({asked.Count} asked)");
     }
 }
-
-public class HotkeyTests
-{
-    [Theory]
-    [InlineData("F11", 0x7A, false, false, false)]
-    [InlineData("Ctrl+J", 0x4A, true, false, false)]
-    [InlineData("ctrl + shift + f12", 0x7B, true, true, false)]
-    [InlineData("Alt+Num5", 0x65, false, false, true)]
-    [InlineData("Control+PgDn", 0x22, true, false, false)]
-    [InlineData("Shift+7", 0x37, false, true, false)]
-    public void KeysAreRead(string text, int key, bool ctrl, bool shift, bool alt) =>
-        Assert.Equal(new Hotkey(key, ctrl, shift, alt), Hotkeys.Parse(text));
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("none")]
-    [InlineData("Ctrl")]
-    [InlineData("Ctrl+J+K")]
-    [InlineData("Hyper+J")]
-    [InlineData(null)]
-    public void WhatIsntAKeyIsNone(string? text) => Assert.Null(Hotkeys.Parse(text));
-
-    [Fact]
-    public void KeysAreWrittenModifiersFirst()
-    {
-        Assert.Equal("Ctrl+Shift+F12", Hotkeys.Format(new Hotkey(0x7B, true, true, false)));
-        Assert.Equal("Ctrl+J", Hotkeys.Normalise("j + ctrl"));
-        Assert.Equal(string.Empty, Hotkeys.Normalise("none"));
-        Assert.Null(Hotkeys.Normalise("Ctrl+Nope"));
-    }
-
-    [Fact]
-    public void APressFiresOnceWithExactlyItsModifiers()
-    {
-        var k = Hotkeys.Parse("Ctrl+J")!.Value;
-        Assert.True(Hotkeys.Pressed(k, true, true, false, false, false));
-        Assert.False(Hotkeys.Pressed(k, true, true, false, false, true));
-        Assert.False(Hotkeys.Pressed(k, true, false, false, false, false));
-        Assert.False(Hotkeys.Pressed(k, true, true, true, false, false));
-        Assert.False(Hotkeys.Pressed(k, false, true, false, false, false));
-    }
-}
-
 public class JsonTests
 {
     [Fact]

@@ -149,15 +149,6 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Minutes of nothing happening before a session ends (the next thing starts a new one): 10 to 180 (<see cref="Core.SessionClock.IdleFor"/>).</summary>
     public int IdleMinutes { get; set; } = 30;
 
-    /// <summary>The key that saves the line on screen ("F11"; empty: none).</summary>
-    public string LineKey { get; set; } = "F11";
-
-    /// <summary>The key that takes a photo without the HUD.</summary>
-    public string PhotoKey { get; set; } = "F12";
-
-    /// <summary>The key that opens the quick note.</summary>
-    public string NoteKey { get; set; } = "Ctrl+J";
-
     /// <summary>The small tracker over the game.</summary>
     public bool ShowTracker { get; set; } = true;
 

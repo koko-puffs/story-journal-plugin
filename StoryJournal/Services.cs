@@ -22,7 +22,6 @@ internal sealed class Services
     [PluginService] internal static IDutyState Duty { get; private set; } = null!;
     [PluginService] internal static IPartyList Party { get; private set; } = null!;
     [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
-    [PluginService] internal static IKeyState Keys { get; private set; } = null!;
     [PluginService] internal static ITextureProvider Textures { get; private set; } = null!;
     [PluginService] internal static ITextureReadbackProvider TextureReadback { get; private set; } = null!;
 }

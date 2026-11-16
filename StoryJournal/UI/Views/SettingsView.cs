@@ -9,9 +9,6 @@ namespace StoryJournal.UI;
 
 public sealed partial class MainWindow
 {
-    private string? lineKey;
-    private string? photoKey;
-    private string? noteKey;
 
     private static readonly string[] WhisperWords = { "Quiet", "Sometimes", "Chatty" };
 
@@ -145,18 +142,12 @@ public sealed partial class MainWindow
                 config.Paused ? "Resume" : "Pause", config.Paused ? Btn.Primary : Btn.Glass, config.Paused ? Icon.Play : Icon.Pause))
             Later(() => journal.Pause(!config.Paused));
 
-        // Keys.
+        // Commands (no keys of the plugin's own: they'd take keys the game has).
         Kit.Gap(16);
-        Ink.KickerRow("Keys");
+        Ink.KickerRow("Commands");
         Kit.Gap(4);
-        Kit.BeginPanel("##set-keys", 14, 16, 14, Palette.Leaf, Palette.Line, Palette.RadiusMd);
-        KeyField("##set-key-line", "Save the line", ref lineKey, config.LineKey, v => config.LineKey = v);
-        Kit.Gap(10);
-        KeyField("##set-key-photo", "Photo", ref photoKey, config.PhotoKey, v => config.PhotoKey = v);
-        Kit.Gap(10);
-        KeyField("##set-key-note", "Quick note", ref noteKey, config.NoteKey, v => config.NoteKey = v);
-        Kit.Gap(8);
-        Parts.Quiet("Any key or combination (F11, Ctrl+J, Ctrl+Shift+F12); empty for none. Each also has a command for macros: /sj line, /sj photo, /sj note.");
+        Kit.BeginPanel("##set-commands", 14, 16, 14, Palette.Leaf, Palette.Line, Palette.RadiusMd);
+        Parts.Quiet("/sj line saves the line on screen, /sj photo takes a photo without the HUD, /sj note opens a quick note. Story Journal has no keys of its own, so it never takes one the game uses: put a command in a macro to have it on your hotbar, or bind that.");
         Kit.EndPanel();
 
         // Offline.
@@ -185,33 +176,5 @@ public sealed partial class MainWindow
     {
         change();
         config.Save();
-    }
-
-    /// <summary>A key's field: written as words, kept when it reads as a key (or is empty: none).</summary>
-    private void KeyField(string id, string label, ref string? editing, string current, Action<string> set)
-    {
-        editing ??= current;
-        var at = Kit.At;
-        var w = Kit.Width;
-        var lw = S(120);
-        Txt.Line(Kit.Dl, at, label, Face.SansMedium, 14, Palette.Ink, 36);
-        var text = editing;
-        if (Kit.Field(id, new Vector2(at.X + lw, at.Y), w - lw, ref text, "none", Icon.Keyboard, 32)) editing = text;
-        var typing = Dalamud.Bindings.ImGui.ImGui.IsItemActive();
-        Kit.Reserve(at, w, S(36));
-        var normal = Hotkeys.Normalise(editing);
-        if (normal == null)
-        {
-            Kit.Gap(4);
-            var a2 = Kit.At;
-            Txt.Line(Kit.Dl, new Vector2(a2.X + lw, a2.Y), "That isn't a key: try F11 or Ctrl+J.", Face.Sans, 12, Palette.Danger, 16);
-            Kit.Reserve(a2, w, S(16));
-        }
-        else if (normal != current && !typing)
-        {
-            set(normal);
-            config.Save();
-            editing = normal;
-        }
     }
 }

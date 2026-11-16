@@ -342,7 +342,7 @@ public sealed partial class MainWindow
         return "duty";
     }
 
-    /// <summary>The quick note at the foot of Now: a line for tonight's entry in candle gold, its key, Seal as theory, Save.</summary>
+    /// <summary>The quick note at the foot of Now: a line for tonight's entry in candle gold, Seal as theory, Save.</summary>
     private void DrawQuickBar()
     {
         var at = Kit.At;
@@ -358,21 +358,13 @@ public sealed partial class MainWindow
         Icons.Draw(dl, Icon.Feather, new Vector2(at.X + S(11) + (tile - S(15)) / 2, ty + (tile - S(15)) / 2), S(15), Palette.Quill);
         var saveW = Kit.ButtonWidth("Save", BtnSize.Sm);
         var sealW = Kit.ButtonWidth("Seal as theory", BtnSize.Sm, null, Btn.Quill);
-        var key = config.NoteKey.Length > 0 ? config.NoteKey.Replace("+", " ") : null;
-        var keyW = key != null ? Txt.Measure(key, Face.Mono, 11).X + S(12) : 0;
         var right = at.X + w - S(11);
         var by = at.Y + (h - Kit.ButtonHeight(BtnSize.Sm)) / 2;
         var empty = quickNote.Trim().Length == 0;
         var save = Kit.Button("##now-note-save", new Vector2(right - saveW, by), "Save", Btn.Glass, BtnSize.Sm, null, 0, empty);
         var seal = Kit.Button("##now-note-seal", new Vector2(right - saveW - S(8) - sealW, by), "Seal as theory", Btn.Quill, BtnSize.Sm, null, 0, empty);
         var fieldX = at.X + S(11) + tile + S(12);
-        var fieldR = right - saveW - sealW - S(16) - (key != null ? keyW + S(10) : 0);
-        if (key != null)
-        {
-            var kp = new Vector2(fieldR + S(4), at.Y + (h - S(20)) / 2);
-            dl.AddRect(kp, kp + new Vector2(keyW, S(20)), Palette.U32(Palette.LineStrong), S(5));
-            Txt.Line(dl, kp + new Vector2(S(6), 0), key, Face.Mono, 11, Palette.Muted, 20);
-        }
+        var fieldR = right - saveW - sealW - S(16);
         var entered = Kit.Field("##now-note", new Vector2(fieldX, at.Y + (h - S(36)) / 2), MathF.Max(S(60), fieldR - fieldX), ref quickNote,
             "A line for tonight's entry…", null, 2000, ImGuiInputTextFlags.EnterReturnsTrue, Face.ReadItalic, 14, Palette.QuillInk, true, 36, null,
             Palette.Rgba(243, 227, 194, 0.45f));

@@ -174,8 +174,8 @@ written but the baseline keeps up, so resuming doesn't write what happened meanw
 | `duty` | IDutyState's start (or being in a duty without it: from then) and completion; written when you leave | `{ id, name, type, cleared, seconds }` (`id` the ContentFinderCondition row; `type` in English whatever the client's language, from its `ContentType` row: "dungeon", "guildhest", "trial", "raid", "ultimate raid", "deep dungeon"…, "duty" for one not known; the site reads "dungeon", "trial", "raid" and "guildhest" in it) |
 | `level` | a higher level on the same job | `{ job, level }` |
 | `person` | the speaker of the `Talk` window during a quest's talk or a cutscene (`OccupiedInQuestEvent`, `OccupiedInCutSceneEvent`), the first time this character met them; not "???" or yourself | `{ name, place, questId? }` |
-| `line` | `/sj line` or its key: the last `Talk` line | `{ speaker, text, questId?, place }` |
-| photo | `/sj photo` or its key | through the photo function, never a sync |
+| `line` | `/sj line` (or its button): the last `Talk` line | `{ speaker, text, questId?, place }` |
+| photo | `/sj photo` (or its button) | through the photo function, never a sync |
 
 Side quests and duties the main story doesn't unlock are written only with **Side content too** on
 (off by default, as the mock-up's "pause while I'm not on the main story"). People met can be
@@ -441,7 +441,7 @@ nothing moves either (`Ink.Busy`, set each frame: the game's busy, as motion.htm
     **Previously** (three lines from the last evenings, ruled, and "Read it all on the site") and
     **Ahead** (how many quests to the next duty, what kind it is inked out on strict spoilers, its name
     on gentle and off; a good place to stop). At the foot, always: **the quick note** in candle gold,
-    its key shown, Seal as theory, Save (Enter saves). Linking, when not linked.
+    Seal as theory, Save (Enter saves). Linking, when not linked.
   - *This evening*: the day and since when, "The evening so far", Save the line and Take a photo as
     buttons in its head; four tiles (played, quests, how much of the story it moved, photos); what
     happened on the red thread, newest on top (a knot, the time, the words with names in ink; a saved line
@@ -461,7 +461,7 @@ nothing moves either (`Ink.Busy`, set each frame: the game's busy, as motion.htm
     my mind); **Seal a theory** opens the composer (asked about in 5, 10 or 25 quests, or not); the whole
     Notebook on the site. Notes: a note in gold (and who it's about), notes waiting to send, those still
     open (from hello), each in a small box.
-  - *Settings*: below, in rows as the mock-up's (only Keys and Offline in boxes).
+  - *Settings*: below, in rows as the mock-up's (only Commands and Offline in boxes).
 - **Welcome back** (`WelcomeWindow`): after login, when the last evening (as hello says) ended at least
   the site's `welcomeHours` ago (0: every login), once the story's read. A page from your journal: a
   deep red edge and the ribbon (dropping once), the day and how long away, "Welcome back, Koko.", the recap
@@ -496,7 +496,7 @@ nothing moves either (`Ink.Busy`, set each frame: the game's busy, as motion.htm
   photo), a wax seal (a theory sealed; cracked once answered), a tick, a warning. When a quest finished
   brings a theory due, a toast with a cracked seal says "The story answered a theory · Open it on the
   site?", once (`TheoryAnswers.JustAnswered`; those already due at login aren't told again).
-- **Quick note** (`QuickNoteWindow`, its key or `/sj note`): an index card (a warmer paper, the quill's
+- **Quick note** (`QuickNoteWindow`, `/sj note`): an index card (a warmer paper, the quill's
   edge), ruled in faint gold, the red margin 38px in, your words in Literata's italic and candle gold as you
   type, four lines of them (the rules follow the words' own line: ImGui can't space a field's lines to the
   mock-up's 26px); **About** fills itself with whoever you're looking at, a chip you can type over; Add to
@@ -533,9 +533,9 @@ The **pace lock**: hello's partners with your lock on (`lock`); you're warned wh
   **Calm** (`Calm`, off): nothing moves, as Dalamud's reduced motion.
 - **Recording**: quests, cutscenes, places, duties and levels (on); side content too (off); people
   met (on); a new evening after N minutes (30); Pause recording.
-- **Keys**: save the line (F11), photo (F12), quick note (Ctrl+J): any key or combination, empty for
-  none. A key fires once when it goes down with exactly its modifiers, and the game doesn't see it
-  then; not while typing in the game's chat or a plugin's field. Held down it fires once.
+- **Commands**: `/sj line`, `/sj photo`, `/sj note`, for a macro on the hotbar (or a key the player
+  binds to it in the game). The plugin has no keys of its own (it had F11, F12 and Ctrl+J until
+  0.2.3, which took keys the game uses and kept them from it); a key set before is forgotten.
 - **Offline**: what's waiting, what was set aside, the Codex's state; Send now, Fetch the Codex again.
 
 Per character (`CharacterMemory`, by key): the zones visited since the journal began, the people met
@@ -576,9 +576,9 @@ answer is waited for (3 s at most), so it doesn't write the queue after a reload
 StoryJournal/
   Core/        game-free and tested: the site link and calls, events, sessions, the queue, the main
                story's catalog and progress, journal text, hello and the welcome card, the pace
-               lock, the Codex, keys, photos' upload, the sync's policy and order (Outbox)
+               lock, the Codex, photos' upload, the sync's policy and order (Outbox)
   Game/        reading the game: the player, quests, the scenario tree, sheets, places and duties,
-               the Talk window, the map flag, keys
+               the Talk window, the map flag
   Session/     the recorder, the story, the sync, photos, the Codex's copy, the journal (the heart)
   UI/          the windows; UI/Kit the shared kit; UI/Model the icons' paths (tested)
   Resources/   the Geist fonts (OFL)
@@ -616,7 +616,7 @@ until it's made: until then the download fails, so release before telling anyone
 2. The Now tab's quest, step, objectives and chapter against the game's journal and the New Game+
    list.
 3. Take a quest, finish one (This session); watch a cutscene; enter and clear a duty.
-4. `/sj line` during a dialogue; `/sj photo`; F11 and F12.
+4. `/sj line` during a dialogue; `/sj photo`; F11, F12 and Ctrl+J do the game's own thing.
 5. Flag on map.
 6. Link, and see the session on the site.
 
@@ -624,6 +624,10 @@ until it's made: until then the download fails, so release before telling anyone
 
 ### 0.2.3 (unreleased)
 
+- No keys of its own any more: F11 (save the line), F12 (photo) and Ctrl+J (quick note) took keys
+  the game uses, and kept them from it. The commands stay (`/sj line`, `/sj photo`, `/sj note`):
+  put one in a macro for the hotbar. Settings' Keys box is now Commands; the quick note's key chip
+  is gone.
 - The rail's sliding red bar is gone (it lagged behind and got dragged when the window moved): the
   open place is raised, its picture red.
 

@@ -24,7 +24,6 @@ public sealed class Journal : IDisposable
 
     private readonly ConcurrentQueue<Action> fromWorkers = new();
     private readonly TalkReader talk;
-    private readonly KeyWatch keys = new();
     private readonly SessionClock clock;
     private readonly List<JournalEvent> sessionEvents = new();
 
@@ -132,7 +131,7 @@ public sealed class Journal : IDisposable
     /// <summary>Cards may come now: calm (no combat, duty, cutscene or loading), and not held for a party.</summary>
     public bool CardsMayCome => InGame.Calm && !(Config.HoldInParty && InGame.InParty);
 
-    /// <summary>Opens the quick note (a window's job; the key and /sj note without words ask for it).</summary>
+    /// <summary>Opens the quick note (a window's job; /sj note without words asks for it).</summary>
     public event Action? NoteAsked;
 
     // ---------------------------------------------------------------------------------------------
@@ -155,7 +154,6 @@ public sealed class Journal : IDisposable
         }
         Sync.Tick(now);
         Photos.Tick();
-        Keys();
         if (now - lastLook < Look) return;
         lastLook = now;
 
@@ -527,7 +525,7 @@ public sealed class Journal : IDisposable
             Services.Chat.Print("Story Journal: photo taken. It goes to the site with this session.");
     }
 
-    /// <summary>Asks for the quick note (the key, or /sj note with nothing after it).</summary>
+    /// <summary>Asks for the quick note (/sj note with nothing after it).</summary>
     public void AskNote() => NoteAsked?.Invoke();
 
     /// <summary>Keeps a note (sent to the site as soon as it can be).</summary>
@@ -707,13 +705,6 @@ public sealed class Journal : IDisposable
     {
         Toasts.Add(new Toast(title, body, note, kind, DateTime.UtcNow));
         if (Toasts.Count > 4) Toasts.RemoveAt(0);
-    }
-
-    private void Keys()
-    {
-        if (keys.Pressed(Config.LineKey)) SaveLine();
-        if (keys.Pressed(Config.PhotoKey)) TakePhoto();
-        if (keys.Pressed(Config.NoteKey)) AskNote();
     }
 
     private void OnTalk(TalkLine line) => Recorder.Heard(line, Player);
