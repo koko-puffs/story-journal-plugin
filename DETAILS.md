@@ -625,7 +625,7 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## Release notes
 
-### 0.2.5 (not released yet)
+### 0.2.5
 
 - **The new mark** (17 November 2026, the site's: kokos-tools `src/features/marks.ts`): an open book
   in cherry under a pale crystal, for the plugin's icon and at each card's head (`Parts.Mark`; a
