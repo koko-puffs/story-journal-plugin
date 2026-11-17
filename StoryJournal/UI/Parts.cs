@@ -13,30 +13,84 @@ namespace StoryJournal.UI;
 internal static class Parts
 {
     /// <summary>
-    /// The mark, as the site's (kokos-tools: features/marks.ts) and the plugin's icon: a bookmark of
-    /// the tile red, its ribbon notched at the foot, an open book on it in white; drawn in the
-    /// mark's own 30 × 30 grid, scaled (flat, where the icon's red is a blend from cherry to wine).
+    /// The mark, as the site's (kokos-tools: features/marks.ts) and the plugin's icon: an open book
+    /// in cherry (its left page lit, its right deeper), the spine and its pages' lines, a pale
+    /// crystal over it; drawn flat in the mark's 30 × 30 grid, scaled (the icon's red is a blend
+    /// from cherry to wine). Its pages' lines are left off below 18 pixels across.
     /// </summary>
     public static void Mark(Vector2 pos, float size)
     {
         var dl = Kit.Dl;
         var k = size / 30f;
         Vector2 P(float x, float y) => pos + new Vector2(x, y) * k;
-        var tile = Palette.U32(Palette.AccentDeep);
-        // Its body (the top corners rounded), then the two tails either side of the notch.
-        dl.AddRectFilled(P(3.5f, 1), P(26.5f, 22.6f), tile, 2.5f * k, ImDrawFlags.RoundCornersTop);
-        Span<Vector2> tail = stackalloc Vector2[4];
-        tail[0] = P(3.5f, 22.2f); tail[1] = P(15, 22.2f); tail[2] = P(15, 22.4f); tail[3] = P(4.6f, 28.6f);
-        FillConvex(dl, tail, tile);
-        tail[0] = P(3.5f, 22.2f); tail[1] = P(4.6f, 28.6f); tail[2] = P(3.8f, 28.4f); tail[3] = P(3.5f, 27.8f);
-        FillConvex(dl, tail, tile);
-        tail[0] = P(26.5f, 22.2f); tail[1] = P(15, 22.2f); tail[2] = P(15, 22.4f); tail[3] = P(25.4f, 28.6f);
-        FillConvex(dl, tail, tile);
-        tail[0] = P(26.5f, 22.2f); tail[1] = P(25.4f, 28.6f); tail[2] = P(26.2f, 28.4f); tail[3] = P(26.5f, 27.8f);
-        FillConvex(dl, tail, tile);
-        // The open book, in the middle of the bookmark's body.
-        var icon = size * 0.56f;
-        Icons.Draw(dl, Icon.BookOpen, pos + new Vector2((size - icon) / 2, size * 0.413f - icon / 2), icon, Palette.White, 1.9f);
+        uint C(uint rgb, float a = 1f) => Palette.U32(Palette.Hex(rgb, a));
+        // Each page: its top's curve out from the spine, its outer corners, its foot's curve back.
+        Span<Vector2> page = stackalloc Vector2[40];
+        var lit = PageOutline(page, P, -1);
+        Page(dl, page[..lit], P(8.5f, 17), C(0xd6324f));
+        var deep = PageOutline(page, P, 1);
+        Page(dl, page[..deep], P(21.5f, 17), C(0xad1734));
+        dl.AddLine(P(15, 10.2f), P(15, 27.4f), C(0x7f0b22), 1.2f * k);
+        if (size >= 18)
+        {
+            var line = C(0xffffff, 0.7f);
+            foreach (var y in new[] { 12.4f, 15.6f, 18.8f })
+                dl.AddBezierQuadratic(P(5.4f, y), P(9.6f, y - 0.6f), P(12.6f, y + 1.2f), line, k);
+            foreach (var y in new[] { 13.6f, 16.8f, 20f })
+                dl.AddBezierQuadratic(P(17.4f, y), P(20.4f, y - 1.8f), P(24.6f, y - 1.2f), line, k);
+        }
+        // The crystal over it, its left half lit.
+        Span<Vector2> gem = stackalloc Vector2[4];
+        gem[0] = P(15, 0.8f); gem[1] = P(17.8f, 4.4f); gem[2] = P(15, 8); gem[3] = P(12.2f, 4.4f);
+        FillConvex(dl, gem, C(0xffd0dc));
+        gem[0] = P(15, 0.8f); gem[1] = P(15, 8); gem[2] = P(12.2f, 4.4f);
+        FillConvex(dl, gem[..3], C(0xffffff, 0.6f));
+    }
+
+    /// <summary>
+    /// A page's outline into <paramref name="pts"/> (<paramref name="side"/> -1 the left, 1 the
+    /// right, mirrored about the spine), its curves as short straight runs: how many points.
+    /// </summary>
+    private static int PageOutline(Span<Vector2> pts, Func<float, float, Vector2> p, int side)
+    {
+        Span<Vector2> outline = stackalloc Vector2[30];
+        var n = 0;
+        for (var i = 0; i <= 12; i++)
+            outline[n++] = Bez(new(15, 10.2f), new(11.4f, 7.6f), new(7, 7), new(3, 7.8f), i / 12f);
+        outline[n++] = new(2.15f, 8.3f);
+        outline[n++] = new(2, 9);
+        outline[n++] = new(2, 24.4f);
+        outline[n++] = new(2.3f, 25.1f);
+        for (var i = 0; i <= 12; i++)
+            outline[n++] = Bez(new(3, 25.2f), new(7, 24.4f), new(11.4f, 25), new(15, 27.6f), i / 12f);
+        for (var i = 0; i < n; i++)
+        {
+            var v = outline[i];
+            pts[i] = side < 0 ? p(v.X, v.Y) : p(30 - v.X, v.Y);
+        }
+        return n;
+    }
+
+    /// <summary>A point along a cubic curve from <paramref name="a"/> to <paramref name="d"/>, <paramref name="t"/> of the way.</summary>
+    private static Vector2 Bez(Vector2 a, Vector2 b, Vector2 c, Vector2 d, float t)
+    {
+        var u = 1 - t;
+        return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+    }
+
+    /// <summary>
+    /// A page filled (it isn't convex: its foot curves in), as a fan of triangles from
+    /// <paramref name="mid"/> drawn without smoothing (smoothed, their shared edges would show), then
+    /// its outline smoothed in its own colour.
+    /// </summary>
+    private static void Page(ImDrawListPtr dl, Span<Vector2> pts, Vector2 mid, uint col)
+    {
+        var flags = dl.Flags;
+        dl.Flags = flags & ~ImDrawListFlags.AntiAliasedFill;
+        for (var i = 0; i < pts.Length; i++)
+            dl.AddTriangleFilled(mid, pts[i], pts[(i + 1) % pts.Length], col);
+        dl.Flags = flags;
+        dl.AddPolyline(ref pts[0], pts.Length, col, ImDrawFlags.Closed, 1f);
     }
 
     /// <summary>

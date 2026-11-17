@@ -397,11 +397,14 @@ on the quill's edge); chips raised with the line edge (the ribbon's or the quill
 windows are the leaf at 97%; the journal's title bar carries the small ribbon before "Story Journal" and, on
 the right, who's playing (on Now) or the open place.
 The mark (`Parts.Mark`, at each card's head, and the plugin's icon) is the site's (kokos-tools:
-`src/features/marks.ts`, 8 November 2026): a bookmark of the tile red, notched at its foot, an open
-book on it in white; drawn flat in the mark's 30 × 30 grid (its body a rectangle rounded at the
-top, its two tails convex pieces either side of the notch; the icon's red is a blend from cherry
-to wine; a star over the book came off the same day). It was the open book on a rounded square
-before.
+`src/features/marks.ts`, 17 November 2026): an open book in cherry, its spine in wine and its pages'
+lines in white, a pale crystal over it. It's drawn flat in the mark's 30 × 30 grid: each page a fan
+of triangles from its middle, drawn unsmoothed (a page isn't convex, its foot curving in, and
+smoothed triangles would show their shared edges), then its outline smoothed in its own colour; the
+left page lit `#d6324f`, the right deeper `#ad1734`; its pages' lines left off below 18 pixels
+across (the tracker's). The icon's red is a blend from cherry to wine, lit at its top left
+(`tools/icon.svg` is the site's `markSvg` as written). Before: a bookmark of the tile red with an
+open book on it in white (8 November 2026), the open book on a rounded square before that.
 Every card waits for a calm moment (`InGame.Calm`: not in combat, a duty, a cutscene, a loading
 screen or Group Pose); Dalamud hides plugin windows during cutscenes and Group Pose anyway.
 
@@ -622,7 +625,14 @@ until it's made: until then the download fails, so release before telling anyone
 
 ## Release notes
 
-### 0.2.4 (unreleased)
+### 0.2.5 (not released yet)
+
+- **The new mark** (17 November 2026, the site's: kokos-tools `src/features/marks.ts`): an open book
+  in cherry under a pale crystal, for the plugin's icon and at each card's head (`Parts.Mark`; a
+  white book on a red bookmark before). The icon shows in the installer as soon as it's on main
+  (`IconUrl`); the cards' mark comes with the release.
+
+### 0.2.4
 
 - No keys of its own any more: F11 (save the line), F12 (photo) and Ctrl+J (quick note) took keys
   the game uses, and kept them from it. The commands stay (`/sj line`, `/sj photo`, `/sj note`):
