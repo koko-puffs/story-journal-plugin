@@ -16,7 +16,7 @@ namespace StoryJournal.Session;
 public sealed record PhotoAsk(Guid Session, string Character, string Caption, DateTime At);
 
 /// <summary>
-/// Photos without the HUD, as Glamour Studio's shots are taken: the HUD is hidden (as Scroll Lock does)
+/// Photos without the HUD, as Glamourie's shots are taken: the HUD is hidden (as Scroll Lock does)
 /// for a few frames, the game's next frame is grabbed before ImGui draws (so no plugin window is in
 /// it either), the HUD shown again, then the picture is made at most 1920 on its long side (1600, then
 /// 1280, if that's still too big) as a JPEG under 900 KB (the site keeps 1 MB a photo), off the framework thread, and kept in the

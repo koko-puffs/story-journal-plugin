@@ -3,7 +3,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace StoryJournal.Game;
 
-/// <summary>A game window's text as words (as Glamour Studio's AtkText reads it).</summary>
+/// <summary>A game window's text as words (as Glamourie's AtkText reads it).</summary>
 public static unsafe class AtkText
 {
     public static bool IsText(AtkValueType type) => ((int)type & 0xF) is 8 or 0xA;

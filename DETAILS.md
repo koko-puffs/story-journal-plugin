@@ -188,7 +188,7 @@ from other plugins that read it).
 
 ## Photos (`Session/Photos.cs`)
 
-As Glamour Studio's shots: the HUD is hidden (as Scroll Lock does) for a few frames, the game's next
+As Glamourie's shots: the HUD is hidden (as Scroll Lock does) for a few frames, the game's next
 frame is grabbed before ImGui draws (no plugin window in it either), the HUD shown again; on a
 worker the picture is made at most 1920 on its long side (1600, then 1280, if that's still too big)
 and written as a JPEG (WIC through Dalamud's texture readback) at the first of qualities 0.82 to 0.55
@@ -197,7 +197,7 @@ account), then kept in the queue. A photo made by an older version and still wai
 1 MB is let go, said once (the site no longer takes it). Making it is given up after 25 s ("Try again"), and then it's never kept, even if it finishes
 after (it's either given up or kept, never both). It goes to the site once the site has its session;
 one whose session the site refused is set aside. *Unverified in the game for this plugin* (the same
-code works in Glamour Studio's).
+code works in Glamourie's).
 
 ## The main story (`Core/Msq.cs`, `Game/Sheets.cs`, `Session/Story.cs`)
 
